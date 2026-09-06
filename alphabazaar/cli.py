@@ -104,18 +104,35 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _mcp_hint(e: Exception) -> int:
+    console.print(f"[red]MCP connection failed:[/red] {type(e).__name__}: {e}")
+    console.print(
+        "[dim]checklist: (1) the Agent OS / Agentic sub-account is enabled on your Binance account, "
+        "(2) run `mcp-auth` first and complete the browser consent, "
+        "(3) BINANCE_MCP_URL is correct in .env. "
+        "Share the full error and I'll adjust alphabazaar/mcp_client.py.[/dim]"
+    )
+    return 1
+
+
 def cmd_mcp_auth(args: argparse.Namespace) -> int:
     from .mcp_client import mcp_auth
 
     console.print("[dim]starting Binance Agent OS OAuth… a browser tab will open.[/dim]")
-    mcp_auth()
+    try:
+        mcp_auth()
+    except Exception as e:
+        return _mcp_hint(e)
     return 0
 
 
 def cmd_mcp_probe(args: argparse.Namespace) -> int:
     from .mcp_client import McpBinanceClient
 
-    info = McpBinanceClient().probe()
+    try:
+        info = McpBinanceClient().probe()
+    except Exception as e:
+        return _mcp_hint(e)
     console.print(Panel(f"{info['server']} v{info['version']}\n{info['instructions']}", title="server"))
     t = Table(header_style="dim")
     t.add_column("tool")
