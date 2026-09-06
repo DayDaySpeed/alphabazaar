@@ -82,6 +82,53 @@ def test_snapshot_missing_file_is_explicit(monkeypatch, tmp_path):
         mcp_client.SnapshotBinanceClient()
 
 
+def test_capture_builds_snapshot_from_raw_mcp_responses():
+    from alphabazaar.capture import build_snapshot
+
+    raw = {
+        "sub_account": "agentic (uid 42)",
+        "account": {
+            "uid": 42,
+            "balances": [
+                {"asset": "SOL", "free": "0.10", "locked": "0.00"},
+                {"asset": "BTC", "free": "0.0001", "locked": "0"},
+                {"asset": "USDC", "free": "5.00", "locked": "0"},
+                {"asset": "USDT", "free": "1.00", "locked": "0"},
+                {"asset": "DUST", "free": "0.0", "locked": "0"},
+            ],
+        },
+        "tickers": {
+            "BTCUSDT": {"lastPrice": "80000", "priceChangePercent": "-1.5", "quoteVolume": "10"},
+            "ETHUSDT": {"lastPrice": "2500", "priceChangePercent": "0.4", "quoteVolume": "9"},
+            "BNBUSDT": {"lastPrice": "700", "priceChangePercent": "-3.0", "quoteVolume": "8"},
+            "SOLUSDT": {"lastPrice": "100", "priceChangePercent": "2.0", "quoteVolume": "7"},
+        },
+        "premium_index": {
+            # [openTime, o, h, l, close, ...]; row[-2] is the last *completed* bar
+            "SOLUSDT": [[1, "0", "0", "0", "-0.0006", "0"], [2, "0", "0", "0", "-0.0009", "0"]],
+        },
+    }
+    snap = build_snapshot(raw)
+
+    assert snap["sub_account"] == "agentic (uid 42)"
+    assert snap["portfolio"]["cash_usdc"] == 6.0  # USDC + USDT, DUST/ETH/BNB excluded
+    assets = [h["asset"] for h in snap["portfolio"]["holdings"]]
+    assert assets == ["BTC", "SOL"]  # ordered by ASSETS, zero balances dropped
+    sol = next(h for h in snap["portfolio"]["holdings"] if h["asset"] == "SOL")
+    assert sol["value_usdc"] == 10.0
+    assert sol["change_24h_pct"] == 2.0
+    sol_q = next(q for q in snap["market"] if q["symbol"] == "SOLUSDT")
+    assert sol_q["funding_rate_8h_pct"] == -0.06  # completed bar -0.0006 * 100
+    btc_q = next(q for q in snap["market"] if q["symbol"] == "BTCUSDT")
+    assert btc_q["funding_rate_8h_pct"] is None  # no premium_index supplied
+
+    # round-trips through the client the demo uses
+    client = mcp_client.SnapshotBinanceClient.__new__(mcp_client.SnapshotBinanceClient)
+    client._d = snap
+    client._sub = snap["sub_account"]
+    assert client.get_portfolio().total_value_usdc == pytest.approx(24.0)
+
+
 def test_snapshot_schema_round_trips(tmp_path):
     payload = {
         "sub_account": "agentic (test)",

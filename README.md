@@ -57,14 +57,22 @@ through a supported client and let AlphaBazaar replay the capture:
 
 ```bash
 claude mcp add binance-mcp-server --transport http https://agent.binance.com/mcp/agentic
-# authorize to the Agentic sub-account, then in that client dump balances +
-# tickers into alphabazaar/snapshot.json (schema: see the bundled file)
+# authorize to the Agentic sub-account, then run this loop
 BINANCE_MODE=snapshot X402_MODE=mock ./run_demo.sh --no-approve
 ```
 
 The run downstream is byte-for-byte a live read — same models, same report. A
-real capture (uid 1274306951, built with live USDC→asset Converts) ships in
-`alphabazaar/snapshot.json`.
+real capture (uid 1274306951, built and rebalanced with 8 live Convert orders —
+IDs in the file's `provenance`) ships in `alphabazaar/snapshot.json`.
+
+To **refresh** the capture: from the supported client, call the read-only tools
+(`spot_getAccount`, `spot_ticker24hr` ×4, `futures_usds_premiumIndexKlineData`),
+drop the raw results into one JSON object, and pipe it through the builder — no
+hand arithmetic:
+
+```bash
+python -m alphabazaar.capture < raw.json > alphabazaar/snapshot.json  # see capture.py for the input shape
+```
 
 **`live` mode (future).** Direct CIMD OAuth — code is in place for when the
 allowlist opens:
