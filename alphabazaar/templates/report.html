@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AlphaBazaar · Portfolio Report {{ r.generated_at[:10] }}</title>
+<style>
+  :root{
+    --bg:#0b0e11; --panel:#161a1e; --panel-2:#1e2329; --line:#2b3139;
+    --text:#eaecef; --muted:#848e9c; --yellow:#f0b90b; --green:#2ebd85; --red:#f6465d; --blue:#5b8def;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 20px 64px}
+  header{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;
+    border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:24px}
+  h1{font-size:20px;margin:0;letter-spacing:.3px}
+  h1 b{color:var(--yellow)}
+  .sub{color:var(--muted);font-size:12px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);
+    margin:32px 0 12px;font-weight:600}
+  .grid{display:grid;gap:12px}
+  .kpis{grid-template-columns:repeat(4,1fr)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .kpi .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
+  .kpi .value{font-size:20px;font-weight:600;margin-top:4px}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{text-align:right;padding:9px 10px;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  .pos{color:var(--green)} .neg{color:var(--red)} .mut{color:var(--muted)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600}
+  .pill.opportunity{background:rgba(46,189,133,.14);color:var(--green)}
+  .pill.risk{background:rgba(246,70,93,.14);color:var(--red)}
+  .pill.info{background:rgba(91,141,239,.14);color:var(--blue)}
+  .signal{border-left:3px solid var(--line);padding:10px 14px;margin:8px 0;background:var(--panel-2);border-radius:0 8px 8px 0}
+  .signal.opportunity{border-color:var(--green)}
+  .signal.risk{border-color:var(--red)}
+  .signal .t{font-weight:600;margin-bottom:3px}
+  .signal .d{color:var(--muted);font-size:13px}
+  .signal .m{color:var(--muted);font-size:11px;margin-top:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .narr{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;font-size:14.5px}
+  .pay{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin-bottom:8px}
+  .flow b{color:var(--text)}
+  .rebal{background:rgba(240,185,11,.08);border:1px solid rgba(240,185,11,.35);border-radius:10px;padding:14px 16px;margin:8px 0}
+  .rebal .head{color:var(--yellow);font-weight:600;margin-bottom:4px}
+  footer{margin-top:40px;color:var(--muted);font-size:11px;border-top:1px solid var(--line);padding-top:16px}
+  code{background:var(--panel-2);padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1><b>AlphaBazaar</b> · Daily Portfolio Report</h1>
+      <div class="sub">Sub-account <code>{{ r.sub_account }}</code> · generated {{ r.generated_at }} UTC</div>
+    </div>
+    <div class="sub">x402 spend this run: <b style="color:var(--yellow)">${{ '%.2f'|format(r.spend_usdc) }}</b>
+      / ${{ '%.0f'|format(r.budget_usdc) }} daily cap</div>
+  </header>
+
+  <div class="grid kpis">
+    <div class="card kpi"><div class="label">Total value</div>
+      <div class="value">${{ '{:,.2f}'.format(r.portfolio.total_value_usdc) }}</div></div>
+    <div class="card kpi"><div class="label">Spendable USDC</div>
+      <div class="value">${{ '{:,.2f}'.format(r.portfolio.cash_usdc) }}</div></div>
+    <div class="card kpi"><div class="label">Assets</div>
+      <div class="value">{{ r.portfolio.holdings|length }}</div></div>
+    <div class="card kpi"><div class="label">Signals bought</div>
+      <div class="value">{{ r.signals|length }}</div></div>
+  </div>
+
+  <h2>Agent briefing</h2>
+  <div class="narr">{{ r.narrative }}</div>
+
+  <h2>Holdings</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Asset</th><th>Qty</th><th>Price</th><th>Value</th><th>Weight</th><th>24h</th></tr></thead>
+      <tbody>
+      {% for h in r.portfolio.holdings %}
+        <tr>
+          <td><b>{{ h.asset }}</b></td>
+          <td>{{ '%.4f'|format(h.qty) }}</td>
+          <td>${{ '{:,.2f}'.format(h.price_usdc) }}</td>
+          <td>${{ '{:,.2f}'.format(h.value_usdc) }}</td>
+          <td>{{ '%.1f'|format(r.portfolio.weight(h.asset)) }}%</td>
+          <td class="{{ 'pos' if h.change_24h_pct >= 0 else 'neg' }}">{{ '%+.2f'|format(h.change_24h_pct) }}%</td>
+        </tr>
+      {% endfor %}
+        <tr><td class="mut">USDC</td><td class="mut">—</td><td class="mut">$1.00</td>
+          <td class="mut">${{ '{:,.2f}'.format(r.portfolio.cash_usdc) }}</td>
+          <td class="mut">{{ '%.1f'|format(r.portfolio.weight('USDC')) }}%</td><td class="mut">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Agent-to-agent purchases (x402)</h2>
+  <div class="flow">
+    <b>analyst</b> → discovers paywalled sellers → <b>402 Payment Required</b> → pays USDC → <b>200 + signals</b>
+  </div>
+  <div class="card">
+    <table>
+      <thead><tr><th>Seller</th><th>Amount</th><th>Network</th><th>Settlement tx</th><th>Status</th></tr></thead>
+      <tbody>
+      {% for p in r.payments %}
+        <tr>
+          <td>{{ p.seller }}</td>
+          <td>${{ '%.2f'|format(p.amount_usdc) }}</td>
+          <td class="mut">{{ p.network }}</td>
+          <td class="pay">{{ p.tx_hash | short_hash }}</td>
+          <td class="{{ 'pos' if p.settled else 'neg' }}">{{ 'settled' if p.settled else 'pending' }}
+            <span class="mut">({{ p.mode }})</span></td>
+        </tr>
+      {% endfor %}
+      {% if not r.payments %}
+        <tr><td colspan="5" class="mut">No purchases this run.</td></tr>
+      {% endif %}
+      </tbody>
+    </table>
+  </div>
+  <div class="sub" style="margin-top:8px">Plan: {{ r.plan_rationale }}</div>
+
+  <h2>Signals</h2>
+  {% for s in r.signals %}
+    <div class="signal {{ s.kind }}">
+      <div class="t"><span class="pill {{ s.kind }}">{{ s.kind }}</span> &nbsp;{{ s.asset }} — {{ s.title }}</div>
+      <div class="d">{{ s.detail }}</div>
+      {% if s.metrics %}<div class="m">{% for k,v in s.metrics.items() %}{{ k }}={{ '%.4g'|format(v) }}&nbsp;&nbsp;{% endfor %}· confidence {{ '%.0f'|format(s.confidence*100) }}%</div>{% endif %}
+    </div>
+  {% else %}
+    <div class="sub">No signals purchased this run.</div>
+  {% endfor %}
+
+  <h2>Proposed rebalance <span class="sub">(human-approved, executed inside the sub-account)</span></h2>
+  {% for a in r.rebalance %}
+    <div class="rebal">
+      <div class="head">Convert {{ '%.4f'|format(a.from_qty) }} {{ a.from_asset }} → ≈{{ '{:,.2f}'.format(a.est_to_qty) }} {{ a.to_asset }}</div>
+      <div class="d">{{ a.rationale }}</div>
+    </div>
+  {% else %}
+    <div class="sub">No rebalance recommended — hold.</div>
+  {% endfor %}
+
+  <footer>
+    AlphaBazaar — an x402-powered agent-to-agent research marketplace.
+    Built for the Binance Agent OS mini hackathon. Binance mode: <code>{{ r.portfolio.sub_account }}</code>.
+    Not financial advice.
+  </footer>
+</div>
+</body>
+</html>
