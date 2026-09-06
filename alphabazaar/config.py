@@ -27,8 +27,17 @@ class Settings:
     anthropic_api_key: str = field(default_factory=lambda: _get("ANTHROPIC_API_KEY"))
     model: str = field(default_factory=lambda: _get("ALPHABAZAAR_MODEL", "claude-opus-5"))
 
-    # binance agent os
+    # binance agent os — mode is one of: mock | snapshot | live
+    #   mock     synthetic portfolio, fully offline
+    #   snapshot replay a real Agentic sub-account capture (BINANCE_SNAPSHOT / snapshot.json)
+    #            taken through a whitelisted MCP client — this is what the demo uses
+    #   live     connect the MCP endpoint directly (CIMD OAuth); blocked until Binance
+    #            opens Agent OS to third-party client identities
     binance_mode: str = field(default_factory=lambda: _get("BINANCE_MODE", "mock").lower())
+    binance_snapshot: str = field(default_factory=lambda: _get("BINANCE_SNAPSHOT"))
+    binance_oauth_client_metadata_url: str = field(
+        default_factory=lambda: _get("BINANCE_OAUTH_CLIENT_METADATA_URL")
+    )
     binance_mcp_url: str = field(
         default_factory=lambda: _get("BINANCE_MCP_URL", "https://agent.binance.com/mcp/agentic")
     )

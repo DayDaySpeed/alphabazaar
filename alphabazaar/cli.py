@@ -107,10 +107,13 @@ def cmd_run(args: argparse.Namespace) -> int:
 def _mcp_hint(e: Exception) -> int:
     console.print(f"[red]MCP connection failed:[/red] {type(e).__name__}: {e}")
     console.print(
-        "[dim]checklist: (1) the Agent OS / Agentic sub-account is enabled on your Binance account, "
-        "(2) run `mcp-auth` first and complete the browser consent, "
-        "(3) BINANCE_MCP_URL is correct in .env. "
-        "Share the full error and I'll adjust alphabazaar/mcp_client.py.[/dim]"
+        "[dim]Binance Agent OS currently allows only whitelisted MCP clients "
+        "(Claude, Claude Code, Codex, ChatGPT, Cursor, VS Code); a custom client "
+        "is rejected with 'unsupported agent'. Use BINANCE_MODE=snapshot — read "
+        "the sub-account through a supported client into alphabazaar/snapshot.json "
+        "(see README). `live` mode works once Binance opens client registration: "
+        "then set BINANCE_OAUTH_CLIENT_METADATA_URL to a public CIMD JSON "
+        "(client_id == that URL, token_endpoint_auth_method=none) and re-run mcp-auth.[/dim]"
     )
     return 1
 

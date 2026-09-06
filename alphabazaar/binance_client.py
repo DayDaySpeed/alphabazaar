@@ -1,12 +1,17 @@
 """Access to the Binance Agentic sub-account.
 
-Two implementations:
+Three implementations, selected by ``BINANCE_MODE``:
 
-* ``MockBinanceClient``  — synthetic portfolio + live-or-synthetic market data.
-  Runs fully offline. This is the default and what the demo video uses.
+* ``mock``     — ``MockBinanceClient``: synthetic portfolio + live-or-synthetic
+  market data. Runs fully offline. The default.
 
-* ``McpBinanceClient``   — real Binance Agent OS MCP server (Streamable HTTP +
-  OAuth), defined in ``alphabazaar/mcp_client.py``. Run ``cli.py mcp-auth`` once.
+* ``snapshot`` — ``SnapshotBinanceClient``: replays a real Agentic sub-account
+  capture (``snapshot.json``) taken through a whitelisted MCP client. What the
+  demo video uses — real balances, reproducible run.
+
+* ``live``     — ``McpBinanceClient``: connects the Binance Agent OS MCP server
+  directly (Streamable HTTP + CIMD OAuth). Blocked until Binance opens Agent OS
+  to third-party client identities. Both live clients live in ``mcp_client.py``.
 """
 
 from __future__ import annotations
@@ -85,7 +90,12 @@ class MockBinanceClient:
 
 
 def get_client() -> BinanceClient:
-    if settings.binance_mode == "live":
+    mode = settings.binance_mode
+    if mode == "snapshot":
+        from .mcp_client import SnapshotBinanceClient
+
+        return SnapshotBinanceClient()
+    if mode == "live":
         from .mcp_client import McpBinanceClient
 
         return McpBinanceClient()

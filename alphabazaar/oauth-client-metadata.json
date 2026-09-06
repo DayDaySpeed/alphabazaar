@@ -1,0 +1,8 @@
+{
+  "client_id": "https://gist.githubusercontent.com/DayDaySpeed/61fb65af38bab80835e451b648160e74/raw/alphabazaar-oauth-client-metadata.json",
+  "client_name": "AlphaBazaar",
+  "redirect_uris": ["http://127.0.0.1:43110/callback"],
+  "grant_types": ["authorization_code"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}

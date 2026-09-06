@@ -45,23 +45,43 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-### 3. Connect the Binance MCP server (live mode only)
+### 3. Connect the real Agentic sub-account
+
+Binance Agent OS **gates the MCP endpoint to a fixed client allowlist** —
+Claude, Claude Code, Codex, ChatGPT, Cursor, VS Code. A custom OAuth client is
+rejected at the consent screen with *"The AI Agent you are using is not currently
+supported."* Until Binance opens client registration there are two paths:
+
+**`snapshot` mode (recommended, what the demo uses).** Read the sub-account
+through a supported client and let AlphaBazaar replay the capture:
 
 ```bash
 claude mcp add binance-mcp-server --transport http https://agent.binance.com/mcp/agentic
-# complete the OAuth consent screen — it authorizes the isolated Agentic sub-account
+# authorize to the Agentic sub-account, then in that client dump balances +
+# tickers into alphabazaar/snapshot.json (schema: see the bundled file)
+BINANCE_MODE=snapshot X402_MODE=mock ./run_demo.sh --no-approve
 ```
 
-Then wire the transport in `alphabazaar/binance_client.py::McpBinanceClient` (the tool
-names are stubbed to the documented surface: `get_account`, `get_ticker`,
-`get_funding_rate`, `convert`) and set `BINANCE_MODE=live` in `.env`.
+The run downstream is byte-for-byte a live read — same models, same report. A
+real capture (uid 1274306951, built with live USDC→asset Converts) ships in
+`alphabazaar/snapshot.json`.
+
+**`live` mode (future).** Direct CIMD OAuth — code is in place for when the
+allowlist opens:
+
+1. Host `alphabazaar/oauth-client-metadata.json` at a public HTTPS URL
+   (`client_id` must equal that URL; `token_endpoint_auth_method` must be `none`).
+2. Set `BINANCE_OAUTH_CLIENT_METADATA_URL` in `.env`.
+3. `python -m alphabazaar.cli mcp-auth` → `mcp-probe` → `BINANCE_MODE=live ./run_demo.sh`.
 
 ### 4. Configure `.env`
 
 | Var | Default | Notes |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | optional; enables the `claude-opus-5` planner + briefing. Without it a deterministic planner is used. |
-| `BINANCE_MODE` | `mock` | `mock` \| `live` |
+| `BINANCE_MODE` | `mock` | `mock` \| `snapshot` \| `live` |
+| `BINANCE_SNAPSHOT` | `alphabazaar/snapshot.json` | sub-account capture used by `snapshot` mode |
+| `BINANCE_OAUTH_CLIENT_METADATA_URL` | — | **required for `live` OAuth** — public HTTPS CIMD document URL |
 | `X402_MODE` | `mock` | `mock` = simulated settlement (fake tx hash), ledger still moves. `live` = real Base settlement via a facilitator. |
 | `X402_DAILY_CAP_USDC` | `20` | mirrors Binance x402's $20/day cap; the agent stops buying at this. |
 | `SELLER_FUNDING_URL` / `SELLER_RISK_URL` | localhost | point at deployed seller URLs when hosted |

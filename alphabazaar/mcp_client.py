@@ -1,17 +1,31 @@
-"""Live Binance Agent OS connection over MCP (Streamable HTTP + OAuth).
+"""Binance Agent OS connection over MCP (Streamable HTTP + OAuth).
 
-Only imported when ``BINANCE_MODE=live`` — mock mode never needs the ``mcp`` package.
+Only imported for ``BINANCE_MODE=snapshot`` / ``live`` — mock mode never needs
+the ``mcp`` package.
 
-Flow:
-  1. ``python -m alphabazaar.cli mcp-auth``   — one-time OAuth, caches tokens to
-     ``~/.alphabazaar/mcp-oauth.json``.
-  2. ``python -m alphabazaar.cli mcp-probe``  — prints the server's real tool names
-     so the keyword mapping in ``_TOOL`` can be confirmed / adjusted.
-  3. ``BINANCE_MODE=live python -m alphabazaar.cli run``.
+Two clients live here:
 
-Tested against ``mcp`` 2.1.x. The exact Binance tool names are matched by keyword
-(``_find_tool``) because the documented surface names may differ from the wire
-names; ``mcp-probe`` shows you what the server actually advertises.
+* ``SnapshotBinanceClient`` (``BINANCE_MODE=snapshot``) — replays a real
+  sub-account capture from ``snapshot.json``. **This is the working live path.**
+  Binance Agent OS gates the MCP endpoint to a fixed client allowlist (Claude,
+  Claude Code, Codex, ChatGPT, Cursor, VS Code); a custom OAuth client is rejected
+  at consent with *"The AI Agent you are using is not currently supported."* So
+  AlphaBazaar reads the sub-account through a supported client and replays it here
+  — identical models and report downstream.
+
+* ``McpBinanceClient`` (``BINANCE_MODE=live``) — direct CIMD OAuth, ready for when
+  Binance opens client registration:
+    1. ``python -m alphabazaar.cli mcp-auth``   — one-time OAuth → ``~/.alphabazaar/mcp-oauth.json``
+    2. ``python -m alphabazaar.cli mcp-probe``  — prints the server's real tool names
+    3. ``BINANCE_MODE=live python -m alphabazaar.cli run``
+  Binance advertises CIMD (``client_id_metadata_document_supported``) and exposes
+  no dynamic-registration endpoint, so ``BINANCE_OAUTH_CLIENT_METADATA_URL`` must
+  point at a public HTTPS ``oauth-client-metadata.json`` (``client_id`` == that
+  URL; ``token_endpoint_auth_method`` == ``none``).
+
+Tested against ``mcp`` 2.1.x. Tool names are matched by keyword (``_find_tool``)
+because the documented surface may differ from the wire names; ``mcp-probe`` shows
+what the server actually advertises.
 """
 
 from __future__ import annotations
@@ -34,6 +48,7 @@ from .config import settings
 from .models import Holding, MarketQuote, Portfolio, RebalanceAction
 
 TOKEN_FILE = Path.home() / ".alphabazaar" / "mcp-oauth.json"
+SNAPSHOT_FILE = Path(__file__).resolve().parent / "snapshot.json"
 REDIRECT_PORT = 43110
 REDIRECT_URI = f"http://127.0.0.1:{REDIRECT_PORT}/callback"
 
@@ -61,7 +76,7 @@ class FileTokenStorage(TokenStorage):
 
     def _save(self, data: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(data, indent=2))
+        self.path.write_text(json.dumps(data, indent=2, default=str))
         try:
             self.path.chmod(0o600)
         except Exception:
@@ -73,7 +88,7 @@ class FileTokenStorage(TokenStorage):
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         d = self._load()
-        d["tokens"] = tokens.model_dump(exclude_none=True)
+        d["tokens"] = tokens.model_dump(mode="json", exclude_none=True)
         self._save(d)
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
@@ -82,7 +97,7 @@ class FileTokenStorage(TokenStorage):
 
     async def set_client_info(self, info: OAuthClientInformationFull) -> None:
         d = self._load()
-        d["client"] = info.model_dump(exclude_none=True)
+        d["client"] = info.model_dump(mode="json", exclude_none=True)
         self._save(d)
 
 
@@ -128,23 +143,40 @@ async def _callback_handler() -> AuthorizationCodeResult:
 
 
 def _client_metadata() -> OAuthClientMetadata:
+    # Binance AS metadata: token_endpoint_auth_methods_supported=["none"],
+    # grant_types_supported=["authorization_code"] only.
     return OAuthClientMetadata(
         client_name="AlphaBazaar",
         redirect_uris=[REDIRECT_URI],
-        grant_types=["authorization_code", "refresh_token"],
+        grant_types=["authorization_code"],
         response_types=["code"],
-        token_endpoint_auth_method="client_secret_post",
+        token_endpoint_auth_method="none",
     )
 
 
+def _require_client_metadata_url(explicit: str | None = None) -> str:
+    url = (explicit or settings.binance_oauth_client_metadata_url or "").strip()
+    if not url:
+        raise ValueError(
+            "BINANCE_OAUTH_CLIENT_METADATA_URL is required. "
+            "Binance Agent OS uses CIMD (no /register). Host "
+            "alphabazaar/oauth-client-metadata.json on a public HTTPS URL "
+            "(client_id must equal that URL; token_endpoint_auth_method=none) "
+            "and set the env var to it."
+        )
+    return url.rstrip("/")
+
+
 @asynccontextmanager
-async def _session(url: str):
+async def _session(url: str, *, client_metadata_url: str | None = None):
+    metadata_url = _require_client_metadata_url(client_metadata_url)
     oauth = OAuthClientProvider(
         server_url=url,
         client_metadata=_client_metadata(),
         storage=FileTokenStorage(),
         redirect_handler=_redirect_handler,
         callback_handler=_callback_handler,
+        client_metadata_url=metadata_url,
     )
     http_client = create_mcp_http_client(auth=oauth)
     async with streamable_http_client(url, http_client=http_client) as streams:
@@ -306,8 +338,85 @@ class McpBinanceClient:
         return portfolio, market
 
 
+class SnapshotBinanceClient:
+    """Replay a real Agentic sub-account capture (``BINANCE_MODE=snapshot``).
+
+    Binance Agent OS currently gates the MCP endpoint to a fixed allowlist of
+    client identities (Claude, Claude Code, Codex, ChatGPT, Cursor, VS Code); a
+    custom agent gets ``unsupported agent`` at the consent screen. Until Binance
+    opens client registration, AlphaBazaar reads the sub-account through one of
+    those supported clients and drops the capture in ``snapshot.json`` — same
+    schema the report expects, so ``run`` is byte-for-byte a live read downstream.
+
+    ``execute_convert`` records the intended Convert; run it for real from the
+    supported client (the demo does exactly that via the MCP ``convert_*`` tools).
+    """
+
+    def __init__(self, path: str | Path | None = None):
+        p = Path(path or settings.binance_snapshot or SNAPSHOT_FILE)
+        if not p.exists():
+            raise FileNotFoundError(
+                f"snapshot not found: {p}. Capture the Agentic sub-account with a "
+                "whitelisted MCP client (see README) or set BINANCE_SNAPSHOT."
+            )
+        self._d = json.loads(p.read_text())
+        self._sub = str(self._d.get("sub_account", "agentic"))
+
+    def get_portfolio(self) -> Portfolio:
+        pf = self._d["portfolio"]
+        holdings = [
+            Holding(
+                asset=h["asset"],
+                free=float(h["free"]),
+                locked=float(h.get("locked", 0.0)),
+                price_usdc=float(h["price_usdc"]),
+                value_usdc=float(h["value_usdc"]),
+                change_24h_pct=float(h.get("change_24h_pct", 0.0)),
+            )
+            for h in pf["holdings"]
+        ]
+        return Portfolio(
+            sub_account=self._sub, holdings=holdings, cash_usdc=float(pf["cash_usdc"])
+        )
+
+    def get_market(self, assets: list[str]) -> list[MarketQuote]:
+        by_symbol = {q["symbol"]: q for q in self._d["market"]}
+        out: list[MarketQuote] = []
+        for a in assets:
+            q = by_symbol.get(f"{a}USDT")
+            if not q:
+                continue
+            out.append(
+                MarketQuote(
+                    symbol=q["symbol"],
+                    price=float(q["price"]),
+                    change_24h_pct=float(q.get("change_24h_pct", 0.0)),
+                    volume_24h_usdc=float(q.get("volume_24h_usdc", 0.0)),
+                    funding_rate_8h_pct=(
+                        None if q.get("funding_rate_8h_pct") is None
+                        else float(q["funding_rate_8h_pct"])
+                    ),
+                )
+            )
+        return out
+
+    def execute_convert(self, action: RebalanceAction) -> dict:
+        return {
+            "status": "RECORDED",
+            "sub_account": self._sub,
+            "from": action.from_asset,
+            "to": action.to_asset,
+            "from_qty": action.from_qty,
+            "to_qty": action.est_to_qty,
+            "note": (
+                "snapshot mode — run this Convert for real from the whitelisted "
+                "MCP client (convert_sendQuoteRequest + convert_acceptQuote)"
+            ),
+        }
+
+
 def mcp_auth() -> None:
-    """Run the OAuth handshake and cache tokens."""
+    """Run the OAuth handshake and cache tokens (CIMD, not dynamic registration)."""
 
     async def _do(session: ClientSession):
         return session.server_info

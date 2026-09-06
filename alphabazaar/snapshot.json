@@ -1,0 +1,34 @@
+{
+  "captured_at": "2026-09-06T21:16:00+00:00",
+  "source": "Binance Agent OS MCP (https://agent.binance.com/mcp/agentic)",
+  "captured_via": "Claude Code (whitelisted MCP client) — OAuth to the Agentic sub-account",
+  "note": "Real read of the isolated Agentic sub-account (uid 1274306951). Binance currently gates the MCP endpoint to a fixed client allowlist (Claude, Claude Code, Codex, ChatGPT, Cursor, VS Code), so AlphaBazaar's own agent identity reads through a supported client and replays this capture. SOL is ~47% of the book here so the analyst proposes a trim; that trim was then executed for real (see provenance[6]).",
+  "sub_account": "agentic (uid 1274306951)",
+  "portfolio": {
+    "cash_usdc": 4.99,
+    "holdings": [
+      { "asset": "BTC", "free": 0.00004991, "locked": 0.0, "price_usdc": 79624.02, "value_usdc": 3.97, "change_24h_pct": -0.604 },
+      { "asset": "ETH", "free": 0.00160784, "locked": 0.0, "price_usdc": 2485.48, "value_usdc": 4.00, "change_24h_pct": 0.189 },
+      { "asset": "BNB", "free": 0.00400168, "locked": 0.0, "price_usdc": 747.71, "value_usdc": 2.99, "change_24h_pct": -3.830 },
+      { "asset": "SOL", "free": 0.13130260, "locked": 0.0, "price_usdc": 106.03, "value_usdc": 13.92, "change_24h_pct": 2.060 }
+    ]
+  },
+  "market": [
+    { "symbol": "BTCUSDT", "price": 79624.02, "change_24h_pct": -0.604, "volume_24h_usdc": 750258385.28, "funding_rate_8h_pct": -0.047 },
+    { "symbol": "ETHUSDT", "price": 2485.48, "change_24h_pct": 0.189, "volume_24h_usdc": 477018360.59, "funding_rate_8h_pct": -0.055 },
+    { "symbol": "BNBUSDT", "price": 747.71, "change_24h_pct": -3.830, "volume_24h_usdc": 146597025.91, "funding_rate_8h_pct": 0.036 },
+    { "symbol": "SOLUSDT", "price": 106.03, "change_24h_pct": 2.060, "volume_24h_usdc": 281183144.82, "funding_rate_8h_pct": -0.056 }
+  ],
+  "provenance": {
+    "description": "Every balance above was created by live Convert orders through the Binance Agent OS MCP server (convert_sendQuoteRequest + convert_acceptQuote), all orderStatus=SUCCESS.",
+    "converts": [
+      { "orderId": "2353446820405098000", "from": "6 USDC", "to": "0.0000751 BTC", "purpose": "fund book" },
+      { "orderId": "2353446880535095000", "from": "4 USDC", "to": "0.00160784 ETH", "purpose": "fund book" },
+      { "orderId": "2353446940664243700", "from": "3 USDC", "to": "0.00400168 BNB", "purpose": "fund book" },
+      { "orderId": "2353446992203892000", "from": "8 USDC", "to": "0.07492552 SOL", "purpose": "fund book" },
+      { "orderId": "2353459920056203000", "from": "0.00002519 BTC", "to": "2 USDC", "purpose": "concentrate SOL for demo" },
+      { "orderId": "2353459980184752000", "from": "6 USDC", "to": "0.05637708 SOL", "purpose": "concentrate SOL for demo" },
+      { "orderId": "2353461062516581400", "from": "0.0327 SOL", "to": "3.4521243 USDC", "purpose": "the analyst-proposed rebalance trim, executed live" }
+    ]
+  }
+}
