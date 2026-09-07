@@ -1,73 +1,73 @@
 {
-  "captured_at": "2026-09-07T06:30:00+00:00",
+  "captured_at": "2026-09-07T09:05:00+00:00",
   "source": "Binance Agent OS MCP (https://agent.binance.com/mcp/agentic)",
   "captured_via": "Claude Code (whitelisted MCP client) — OAuth to the Agentic sub-account",
-  "note": "Real read of the isolated Agentic sub-account (uid 1274306951). Binance currently gates the MCP endpoint to a fixed client allowlist (Claude, Claude Code, Codex, ChatGPT, Cursor, VS Code), so AlphaBazaar's own agent identity reads through a supported client and replays this capture. SOL is deliberately ~41% of the book so the risk analyzer flags concentration and the agent proposes a trim; cash is sized to afford all three seller agents.",
+  "note": "Real read of the isolated Agentic sub-account (uid 1274306951). Binance currently gates the MCP endpoint to a fixed client allowlist (Claude, Claude Code, Codex, ChatGPT, Cursor, VS Code), so AlphaBazaar's own agent identity reads through a supported client and replays this capture. SOL is deliberately ~45% of the book so the risk analyzer flags concentration and the agent proposes a trim; cash is sized to afford all three seller agents.",
   "sub_account": "agentic (uid 1274306951)",
   "portfolio": {
-    "cash_usdc": 6.45,
+    "cash_usdc": 5.45,
     "holdings": [
       {
         "asset": "BTC",
         "free": 4.991e-05,
         "locked": 0.0,
-        "price_usdc": 80032.0,
-        "value_usdc": 3.99,
-        "change_24h_pct": 0.151
+        "price_usdc": 79634.28,
+        "value_usdc": 3.97,
+        "change_24h_pct": -0.491
       },
       {
         "asset": "ETH",
         "free": 0.00160784,
         "locked": 0.0,
-        "price_usdc": 2510.86,
-        "value_usdc": 4.04,
-        "change_24h_pct": 0.342
+        "price_usdc": 2499.49,
+        "value_usdc": 4.02,
+        "change_24h_pct": -0.517
       },
       {
         "asset": "BNB",
         "free": 0.00400168,
         "locked": 0.0,
-        "price_usdc": 752.34,
-        "value_usdc": 3.01,
-        "change_24h_pct": -1.288
+        "price_usdc": 745.91,
+        "value_usdc": 2.98,
+        "change_24h_pct": -2.512
       },
       {
         "asset": "SOL",
-        "free": 0.11713488,
+        "free": 0.12659272,
         "locked": 0.0,
-        "price_usdc": 105.9,
-        "value_usdc": 12.4,
-        "change_24h_pct": 1.719
+        "price_usdc": 105.07,
+        "value_usdc": 13.3,
+        "change_24h_pct": -1.5
       }
     ]
   },
   "market": [
     {
       "symbol": "BTCUSDT",
-      "price": 80032.0,
-      "change_24h_pct": 0.151,
-      "volume_24h_usdc": 740966670.01,
+      "price": 79634.28,
+      "change_24h_pct": -0.491,
+      "volume_24h_usdc": 762710496.72,
       "funding_rate_8h_pct": -0.0647
     },
     {
       "symbol": "ETHUSDT",
-      "price": 2510.86,
-      "change_24h_pct": 0.342,
-      "volume_24h_usdc": 514170046.67,
+      "price": 2499.49,
+      "change_24h_pct": -0.517,
+      "volume_24h_usdc": 551702694.65,
       "funding_rate_8h_pct": -0.0527
     },
     {
       "symbol": "BNBUSDT",
-      "price": 752.34,
-      "change_24h_pct": -1.288,
-      "volume_24h_usdc": 124977846.65,
+      "price": 745.91,
+      "change_24h_pct": -2.512,
+      "volume_24h_usdc": 125817325.27,
       "funding_rate_8h_pct": 0.0549
     },
     {
       "symbol": "SOLUSDT",
-      "price": 105.9,
-      "change_24h_pct": 1.719,
-      "volume_24h_usdc": 294633241.9,
+      "price": 105.07,
+      "change_24h_pct": -1.5,
+      "volume_24h_usdc": 286743902.79,
       "funding_rate_8h_pct": -0.0289
     }
   ],
@@ -127,6 +127,12 @@
         "from": "0.01898827 SOL",
         "to": "2 USDC",
         "purpose": "size cash to afford all 3 seller agents"
+      },
+      {
+        "orderId": "2353784275985306112",
+        "from": "1 USDC",
+        "to": "0.00945784 SOL",
+        "purpose": "top SOL back to ~45% for a fresh capture"
       }
     ]
   }
