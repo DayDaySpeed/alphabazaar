@@ -280,10 +280,13 @@ def _facilitator_verify(payload: dict, reqs: PaymentRequirements) -> tuple[bool,
 
 
 def _facilitator_settle(payload: dict, reqs: PaymentRequirements) -> dict:  # pragma: no cover
-    with httpx.Client(timeout=90.0) as c:
-        r = c.post(f"{settings.x402_facilitator_url}/settle", json=_facilitator_body(payload, reqs))
-        r.raise_for_status()
-        data = r.json()
+    try:
+        with httpx.Client(timeout=90.0) as c:
+            r = c.post(f"{settings.x402_facilitator_url}/settle", json=_facilitator_body(payload, reqs))
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:
+        return {"success": False, "txHash": "", "network": reqs.network, "error": f"facilitator settle failed: {e}"}
     return {
         "success": bool(data.get("success")),
         "txHash": data.get("transaction", ""),
@@ -366,7 +369,8 @@ def _build_payment_header(reqs_dict: dict) -> str:
 def paid_get(base_url: str, path: str, ledger: Ledger, *, params: dict | None = None) -> tuple[dict, Payment]:
     """Do the full 402 handshake against `base_url + path`. Returns (json_body, Payment)."""
     url = base_url.rstrip("/") + path
-    with httpx.Client(timeout=30.0) as c:
+    # sellers may fetch live public market data before answering; be generous.
+    with httpx.Client(timeout=90.0) as c:
         first = c.get(url, params=params)
         if first.status_code != 402:
             if first.status_code == 200:

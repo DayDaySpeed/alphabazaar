@@ -1,74 +1,74 @@
 {
-  "captured_at": "2026-09-06T21:55:00+00:00",
+  "captured_at": "2026-09-07T06:30:00+00:00",
   "source": "Binance Agent OS MCP (https://agent.binance.com/mcp/agentic)",
   "captured_via": "Claude Code (whitelisted MCP client) — OAuth to the Agentic sub-account",
-  "note": "Real read of the isolated Agentic sub-account (uid 1274306951). Binance currently gates the MCP endpoint to a fixed client allowlist (Claude, Claude Code, Codex, ChatGPT, Cursor, VS Code), so AlphaBazaar's own agent identity reads through a supported client and replays this capture. SOL is deliberately ~48% of the book here so the risk analyzer flags concentration and the agent proposes a trim.",
+  "note": "Real read of the isolated Agentic sub-account (uid 1274306951). Binance currently gates the MCP endpoint to a fixed client allowlist (Claude, Claude Code, Codex, ChatGPT, Cursor, VS Code), so AlphaBazaar's own agent identity reads through a supported client and replays this capture. SOL is deliberately ~41% of the book so the risk analyzer flags concentration and the agent proposes a trim; cash is sized to afford all three seller agents.",
   "sub_account": "agentic (uid 1274306951)",
   "portfolio": {
-    "cash_usdc": 4.45,
+    "cash_usdc": 6.45,
     "holdings": [
       {
         "asset": "BTC",
         "free": 4.991e-05,
         "locked": 0.0,
-        "price_usdc": 79745.19,
-        "value_usdc": 3.98,
-        "change_24h_pct": -0.396
+        "price_usdc": 80032.0,
+        "value_usdc": 3.99,
+        "change_24h_pct": 0.151
       },
       {
         "asset": "ETH",
         "free": 0.00160784,
         "locked": 0.0,
-        "price_usdc": 2491.46,
-        "value_usdc": 4.01,
-        "change_24h_pct": 0.503
+        "price_usdc": 2510.86,
+        "value_usdc": 4.04,
+        "change_24h_pct": 0.342
       },
       {
         "asset": "BNB",
         "free": 0.00400168,
         "locked": 0.0,
-        "price_usdc": 747.18,
-        "value_usdc": 2.99,
-        "change_24h_pct": -3.835
+        "price_usdc": 752.34,
+        "value_usdc": 3.01,
+        "change_24h_pct": -1.288
       },
       {
         "asset": "SOL",
-        "free": 0.13612315,
+        "free": 0.11713488,
         "locked": 0.0,
-        "price_usdc": 106.12,
-        "value_usdc": 14.45,
-        "change_24h_pct": 1.97
+        "price_usdc": 105.9,
+        "value_usdc": 12.4,
+        "change_24h_pct": 1.719
       }
     ]
   },
   "market": [
     {
       "symbol": "BTCUSDT",
-      "price": 79745.19,
-      "change_24h_pct": -0.396,
-      "volume_24h_usdc": 721425975.16,
-      "funding_rate_8h_pct": -0.047
+      "price": 80032.0,
+      "change_24h_pct": 0.151,
+      "volume_24h_usdc": 740966670.01,
+      "funding_rate_8h_pct": -0.0647
     },
     {
       "symbol": "ETHUSDT",
-      "price": 2491.46,
-      "change_24h_pct": 0.503,
-      "volume_24h_usdc": 475834712.95,
-      "funding_rate_8h_pct": -0.0552
+      "price": 2510.86,
+      "change_24h_pct": 0.342,
+      "volume_24h_usdc": 514170046.67,
+      "funding_rate_8h_pct": -0.0527
     },
     {
       "symbol": "BNBUSDT",
-      "price": 747.18,
-      "change_24h_pct": -3.835,
-      "volume_24h_usdc": 141276172.14,
-      "funding_rate_8h_pct": 0.0356
+      "price": 752.34,
+      "change_24h_pct": -1.288,
+      "volume_24h_usdc": 124977846.65,
+      "funding_rate_8h_pct": 0.0549
     },
     {
       "symbol": "SOLUSDT",
-      "price": 106.12,
-      "change_24h_pct": 1.97,
-      "volume_24h_usdc": 275110060.62,
-      "funding_rate_8h_pct": -0.0564
+      "price": 105.9,
+      "change_24h_pct": 1.719,
+      "volume_24h_usdc": 294633241.9,
+      "funding_rate_8h_pct": -0.0289
     }
   ],
   "provenance": {
@@ -121,6 +121,12 @@
         "from": "4 USDC",
         "to": "0.03752055 SOL",
         "purpose": "restore SOL concentration for a fresh capture"
+      },
+      {
+        "orderId": "2353746789511151723",
+        "from": "0.01898827 SOL",
+        "to": "2 USDC",
+        "purpose": "size cash to afford all 3 seller agents"
       }
     ]
   }

@@ -11,25 +11,32 @@ import json
 
 from .config import settings
 from .models import MarketQuote, Portfolio, RebalanceAction, Signal
-
-SELLER_CATALOG = {
-    "funding": "Funding-rate & basis scanner — perp funding carry + squeeze risk ($1.50)",
-    "risk": "Volatility & correlation risk analyzer — realized vol, correlation, concentration, regime ($1.75)",
-}
+from .registry import catalog
 
 
 # --------------------------------------------------------------------------- plan
-def plan(portfolio: Portfolio, market: list[MarketQuote]) -> tuple[list[str], str]:
-    """Decide which seller agents are worth paying. Returns (seller_keys, rationale)."""
+def plan(
+    portfolio: Portfolio, market: list[MarketQuote], sellers: list[dict]
+) -> tuple[list[str], str]:
+    """Pick which discovered seller agents are worth paying. Returns (ids, rationale)."""
     if settings.has_brain:
         try:
-            return _plan_llm(portfolio, market)
+            return _plan_llm(portfolio, market, sellers)
         except Exception as e:  # pragma: no cover - network/parse issues
-            return _plan_rules(portfolio, market, note=f"(LLM planner failed: {e}; used rules)")
-    return _plan_rules(portfolio, market)
+            return _plan_rules(portfolio, market, sellers, note=f"(LLM planner failed: {e}; used rules)")
+    return _plan_rules(portfolio, market, sellers)
 
 
-def _plan_rules(portfolio: Portfolio, market: list[MarketQuote], note: str = "") -> tuple[list[str], str]:
+def _by_tag(sellers: list[dict], *tags: str) -> str | None:
+    for e in sellers:
+        if any(t in e["tags"] for t in tags):
+            return e["id"]
+    return None
+
+
+def _plan_rules(
+    portfolio: Portfolio, market: list[MarketQuote], sellers: list[dict], note: str = ""
+) -> tuple[list[str], str]:
     reasons: list[str] = []
     picks: list[str] = []
 
@@ -38,8 +45,9 @@ def _plan_rules(portfolio: Portfolio, market: list[MarketQuote], note: str = "")
     movers = [q for q in market if abs(q.change_24h_pct) >= 4]
     hot_funding = [q for q in market if q.funding_rate_8h_pct is not None and abs(q.funding_rate_8h_pct) >= 0.02]
 
-    if hot_funding or True:  # funding scan is cheap and always informative
-        picks.append("funding")
+    funding_id = _by_tag(sellers, "funding")
+    if funding_id:  # funding scan is cheap and always informative
+        picks.append(funding_id)
         if hot_funding:
             reasons.append(
                 "funding: "
@@ -49,8 +57,9 @@ def _plan_rules(portfolio: Portfolio, market: list[MarketQuote], note: str = "")
         else:
             reasons.append("funding: routine carry/squeeze check across majors")
 
-    if top_asset and weights[top_asset] >= 35 or movers:
-        picks.append("risk")
+    risk_id = _by_tag(sellers, "risk", "volatility")
+    if risk_id and (top_asset and weights[top_asset] >= 35 or movers):
+        picks.append(risk_id)
         bits = []
         if top_asset and weights[top_asset] >= 35:
             bits.append(f"{top_asset} is {weights[top_asset]:.0f}% of book (concentration)")
@@ -58,14 +67,29 @@ def _plan_rules(portfolio: Portfolio, market: list[MarketQuote], note: str = "")
             bits.append("24h moves: " + ", ".join(f"{q.symbol[:-4]} {q.change_24h_pct:+.1f}%" for q in movers))
         reasons.append("risk: " + "; ".join(bits))
 
+    momentum_id = _by_tag(sellers, "momentum", "trend")
+    near_movers = [q for q in market if abs(q.change_24h_pct) >= 3]
+    if momentum_id and (near_movers or (top_asset and weights[top_asset] >= 35)):
+        picks.append(momentum_id)
+        if top_asset and weights[top_asset] >= 35:
+            reasons.append(
+                f"momentum: check {top_asset}'s trend before trimming a {weights[top_asset]:.0f}% position"
+            )
+        else:
+            reasons.append(
+                "momentum: "
+                + ", ".join(f"{q.symbol[:-4]} {q.change_24h_pct:+.1f}%" for q in near_movers)
+                + " — read the trend before rebalancing"
+            )
+
     if not picks:
-        picks = ["funding"]
-        reasons.append("baseline funding scan only")
+        picks = [s["id"] for s in sellers[:1]]
+        reasons.append("baseline scan only")
 
     rationale = "Agent plan — " + " | ".join(reasons)
     if note:
         rationale += f" {note}"
-    return picks, rationale
+    return list(dict.fromkeys(picks)), rationale
 
 
 def _client():
@@ -74,7 +98,10 @@ def _client():
     return anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
 
-def _plan_llm(portfolio: Portfolio, market: list[MarketQuote]) -> tuple[list[str], str]:
+def _plan_llm(
+    portfolio: Portfolio, market: list[MarketQuote], sellers: list[dict]
+) -> tuple[list[str], str]:
+    cat = catalog(sellers)
     ctx = {
         "portfolio": {
             "total_value_usdc": portfolio.total_value_usdc,
@@ -89,14 +116,14 @@ def _plan_llm(portfolio: Portfolio, market: list[MarketQuote]) -> tuple[list[str
             {"symbol": q.symbol, "change_24h_pct": q.change_24h_pct, "funding_8h_pct": q.funding_rate_8h_pct}
             for q in market
         ],
-        "sellers_for_sale": SELLER_CATALOG,
+        "sellers_for_sale": cat,
         "x402_budget_usdc": settings.x402_daily_cap_usdc,
     }
     prompt = (
         "You are a portfolio-analyst agent with a small x402 budget. Given the portfolio, live market "
-        "data and the specialist seller agents available for purchase, decide which sellers to pay. "
-        "Only buy what materially helps this portfolio. Respond with STRICT JSON: "
-        '{"sellers": ["funding"|"risk", ...], "rationale": "<=60 words"}.\n\n'
+        "data and the specialist seller agents available for purchase (id -> description), decide which "
+        "sellers to pay. Only buy what materially helps this portfolio. Respond with STRICT JSON: "
+        '{"sellers": ["<id>", ...], "rationale": "<=60 words"}.\n\n'
         + json.dumps(ctx, separators=(",", ":"))
     )
     resp = _client().messages.create(
@@ -105,7 +132,7 @@ def _plan_llm(portfolio: Portfolio, market: list[MarketQuote]) -> tuple[list[str
         messages=[{"role": "user", "content": prompt}],
     )
     data = _extract_json("".join(b.text for b in resp.content if b.type == "text"))
-    picks = [s for s in data.get("sellers", []) if s in SELLER_CATALOG] or ["funding"]
+    picks = [s for s in data.get("sellers", []) if s in cat] or [sellers[0]["id"]]
     return picks, "Agent plan (LLM) — " + str(data.get("rationale", "")).strip()
 
 

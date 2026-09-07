@@ -48,6 +48,17 @@ def _on_event(kind: str, data: dict) -> None:
             f"[dim]x402 budget[/dim]  spendable [bold]${data['balance']:.2f} USDC[/bold]  "
             f"[dim](daily cap ${data['cap']:.0f})[/dim]\n"
         )
+    elif kind == "discover":
+        sellers = data["sellers"]
+        console.print(
+            f"[dim]discovered {len(sellers)} seller agent(s) in the x402 market:[/dim]"
+        )
+        for e in sellers:
+            console.print(
+                f"  [bold]{e['id']}[/bold] [dim]${e['price_usdc']:.2f}[/dim]  {e['name']}  "
+                f"[dim]{e['endpoint']}[/dim]"
+            )
+        console.print()
     elif kind == "plan":
         console.print(Panel(data["rationale"], title="agent decides what to buy", border_style="yellow"))
         console.print(f"[dim]→ purchasing from:[/dim] [bold]{', '.join(data['picks'])}[/bold]\n")

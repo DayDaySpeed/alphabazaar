@@ -56,21 +56,22 @@ class Settings:
         default_factory=lambda: _get("X402_MOCK_SECRET", "alphabazaar-dev-secret")
     )
 
-    # sellers
+    # sellers — discovery is via alphabazaar/sellers.registry.json (or SELLER_REGISTRY);
+    # these are per-entry URL overrides, also honoured by registry.load_sellers().
+    seller_registry: str = field(default_factory=lambda: _get("SELLER_REGISTRY"))
     seller_funding_url: str = field(
         default_factory=lambda: _get("SELLER_FUNDING_URL", "http://127.0.0.1:8801")
     )
     seller_risk_url: str = field(
         default_factory=lambda: _get("SELLER_RISK_URL", "http://127.0.0.1:8802")
     )
+    seller_momentum_url: str = field(
+        default_factory=lambda: _get("SELLER_MOMENTUM_URL", "http://127.0.0.1:8803")
+    )
 
     @property
     def has_brain(self) -> bool:
         return bool(self.anthropic_api_key)
-
-    @property
-    def seller_urls(self) -> dict[str, str]:
-        return {"funding": self.seller_funding_url, "risk": self.seller_risk_url}
 
 
 settings = Settings()

@@ -1,0 +1,52 @@
+# Deploy the three AlphaBazaar seller agents as public x402 services.
+# https://render.com  →  New  →  Blueprint  →  point at this repo.
+#
+# After the first deploy, set each service's *_PAY_TO to a real address (Base
+# Sepolia for the demo) and X402_MODE=live in the Render dashboard, then put the
+# three public URLs in the buyer's env (SELLER_FUNDING_URL / _RISK_URL /
+# _MOMENTUM_URL) or in a hosted registry (SELLER_REGISTRY).
+services:
+  - type: web
+    name: alphabazaar-funding-scanner
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn sellers.funding_scanner:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: X402_MODE
+        value: mock          # flip to live once SELLER_FUNDING_PAY_TO is set
+      - key: X402_NETWORK
+        value: base-sepolia
+      - key: SELLER_FUNDING_PAY_TO
+        sync: false
+
+  - type: web
+    name: alphabazaar-risk-analyzer
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn sellers.risk_analyzer:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: X402_MODE
+        value: mock
+      - key: X402_NETWORK
+        value: base-sepolia
+      - key: SELLER_RISK_PAY_TO
+        sync: false
+
+  - type: web
+    name: alphabazaar-momentum-scanner
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn sellers.momentum_scanner:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: X402_MODE
+        value: mock
+      - key: X402_NETWORK
+        value: base-sepolia
+      - key: SELLER_MOMENTUM_PAY_TO
+        sync: false

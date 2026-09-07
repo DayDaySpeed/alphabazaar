@@ -64,9 +64,13 @@ def test_ledger_enforces_cap_and_balance():
 
 
 def test_planner_rules_pick_sellers():
+    from alphabazaar.registry import load_sellers
+
     c = MockBinanceClient()
-    picks, rationale = brain._plan_rules(c.get_portfolio(), c.get_market(ASSETS))
+    sellers = load_sellers()
+    picks, rationale = brain._plan_rules(c.get_portfolio(), c.get_market(ASSETS), sellers)
     assert "funding" in picks
+    assert set(picks) <= {e["id"] for e in sellers}
     assert rationale
 
 

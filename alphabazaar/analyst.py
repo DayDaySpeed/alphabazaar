@@ -8,9 +8,8 @@ from . import brain
 from .binance_client import ASSETS, get_client
 from .config import settings
 from .models import Payment, Report, Signal
+from .registry import load_sellers
 from .x402 import Ledger, PaymentError, paid_get
-
-SELLER_PATHS = {"funding": "/analysis", "risk": "/analysis"}
 
 
 @dataclass
@@ -19,11 +18,8 @@ class RunResult:
     ledger: Ledger
 
 
-def _seller_params(key: str, portfolio) -> dict | None:
-    if key == "risk":
-        hint = ",".join(f"{h.asset}:{h.qty}" for h in portfolio.holdings)
-        return {"holdings": hint}
-    return None
+def _holdings_hint(portfolio) -> dict:
+    return {"holdings": ",".join(f"{h.asset}:{h.qty}" for h in portfolio.holdings)}
 
 
 def run(*, on_event=None) -> RunResult:
@@ -39,22 +35,28 @@ def run(*, on_event=None) -> RunResult:
     ledger = Ledger(balance_usdc=portfolio.cash_usdc)
     emit("budget", {"balance": ledger.balance_usdc, "cap": ledger.daily_cap_usdc})
 
-    picks, rationale = brain.plan(portfolio, market)
+    sellers = load_sellers()
+    by_id = {e["id"]: e for e in sellers}
+    emit("discover", {"sellers": sellers})
+
+    picks, rationale = brain.plan(portfolio, market, sellers)
     emit("plan", {"picks": picks, "rationale": rationale})
 
     signals: list[Signal] = []
     payments: list[Payment] = []
-    for key in picks:
-        base_url = settings.seller_urls[key]
-        path = SELLER_PATHS[key]
-        emit("buy_start", {"seller": key, "url": base_url + path})
+    hint = _holdings_hint(portfolio)
+    for pid in picks:
+        entry = by_id.get(pid)
+        if not entry:
+            continue
+        emit("buy_start", {"seller": pid, "url": entry["endpoint"]})
         try:
-            body, payment = paid_get(base_url, path, ledger, params=_seller_params(key, portfolio))
+            body, payment = paid_get(entry["url"], entry["path"], ledger, params=hint)
         except PaymentError as e:
-            emit("buy_error", {"seller": key, "error": str(e)})
+            emit("buy_error", {"seller": pid, "error": str(e)})
             continue
         except Exception as e:  # network / seller down
-            emit("buy_error", {"seller": key, "error": f"{type(e).__name__}: {e}"})
+            emit("buy_error", {"seller": pid, "error": f"{type(e).__name__}: {e}"})
             continue
         payments.append(payment)
         for raw in body.get("signals", []):
@@ -65,7 +67,7 @@ def run(*, on_event=None) -> RunResult:
         emit(
             "buy_ok",
             {
-                "seller": key,
+                "seller": pid,
                 "payment": payment,
                 "signals": len(body.get("signals", [])),
                 "balance": ledger.balance_usdc,

@@ -24,6 +24,24 @@ UNIVERSE = {
     "SOL": ("SOLUSDT", "SOLUSDT"),
 }
 
+# process-wide TTL cache so a seller answering one request (or several sellers in
+# one demo run) doesn't refetch the same endpoint — and, once a fetch has failed,
+# doesn't re-wait the timeout: the fallback is cached too.
+_CACHE: dict[str, tuple[float, object]] = {}
+_TTL = 90.0
+
+
+def _cached(key: str, fn, fallback):
+    hit = _CACHE.get(key)
+    if hit and time.time() - hit[0] < _TTL:
+        return hit[1]
+    try:
+        val = fn()
+    except Exception:
+        val = fallback() if callable(fallback) else fallback
+    _CACHE[key] = (time.time(), val)
+    return val
+
 _SYNTH_ANCHOR = {"BTC": 64000.0, "ETH": 3100.0, "BNB": 580.0, "SOL": 145.0}
 
 
@@ -49,65 +67,75 @@ def _synth_funding(asset: str) -> float:
     return round(base + spike, 4)
 
 
+def _spot_ticker_board() -> dict[str, dict]:
+    with httpx.Client(timeout=4.0) as c:
+        r = c.get(f"{SPOT_BASE}/api/v3/ticker/24hr")
+        r.raise_for_status()
+        return {row["symbol"]: row for row in r.json()}
+
+
 def get_spot_tickers(assets: list[str]) -> dict[str, dict]:
+    rows = _cached("spot_board", _spot_ticker_board, dict)
     out: dict[str, dict] = {}
-    try:
-        with httpx.Client(timeout=6.0) as c:
-            r = c.get(f"{SPOT_BASE}/api/v3/ticker/24hr")
-            r.raise_for_status()
-            rows = {row["symbol"]: row for row in r.json()}
-        for a in assets:
-            sym = UNIVERSE[a][0]
-            row = rows.get(sym)
-            if not row:
-                out[a] = _synth_ticker(a)
-                continue
-            out[a] = {
-                "price": float(row["lastPrice"]),
-                "change_24h_pct": float(row["priceChangePercent"]),
-                "volume_24h_usdc": float(row["quoteVolume"]),
-            }
-        return out
-    except Exception:
-        return {a: _synth_ticker(a) for a in assets}
+    for a in assets:
+        sym = UNIVERSE.get(a, (f"{a}USDT",))[0]
+        row = rows.get(sym)
+        if not row:
+            out[a] = _synth_ticker(a) if a in _SYNTH_ANCHOR else {"price": 0.0, "change_24h_pct": 0.0, "volume_24h_usdc": 0.0}
+            continue
+        out[a] = {
+            "price": float(row["lastPrice"]),
+            "change_24h_pct": float(row["priceChangePercent"]),
+            "volume_24h_usdc": float(row["quoteVolume"]),
+        }
+    return out
+
+
+def _premium_index_board() -> dict[str, dict]:
+    with httpx.Client(timeout=4.0) as c:
+        r = c.get(f"{FUTURES_BASE}/fapi/v1/premiumIndex")
+        r.raise_for_status()
+        return {row["symbol"]: row for row in r.json()}
 
 
 def get_funding_rates(assets: list[str]) -> dict[str, float]:
     """Latest perp funding rate as a percent per 8h window (e.g. 0.01 == 0.01%)."""
-    try:
-        with httpx.Client(timeout=6.0) as c:
-            r = c.get(f"{FUTURES_BASE}/fapi/v1/premiumIndex")
-            r.raise_for_status()
-            rows = {row["symbol"]: row for row in r.json()}
-        out = {}
-        for a in assets:
-            sym = UNIVERSE[a][1]
-            row = rows.get(sym)
-            out[a] = round(float(row["lastFundingRate"]) * 100, 4) if row else _synth_funding(a)
-        return out
-    except Exception:
-        return {a: _synth_funding(a) for a in assets}
+    rows = _cached("premium_index", _premium_index_board, dict)
+    out = {}
+    for a in assets:
+        sym = UNIVERSE.get(a, (f"{a}USDT", f"{a}USDT"))[1]
+        row = rows.get(sym)
+        out[a] = round(float(row["lastFundingRate"]) * 100, 4) if row else _synth_funding(a)
+    return out
+
+
+def _fetch_klines(sym: str, interval: str, limit: int) -> list[float]:
+    with httpx.Client(timeout=4.0) as c:
+        r = c.get(
+            f"{SPOT_BASE}/api/v3/klines",
+            params={"symbol": sym, "interval": interval, "limit": limit},
+        )
+        r.raise_for_status()
+        return [float(row[4]) for row in r.json()]
+
+
+def _synth_klines(asset: str, limit: int) -> list[float]:
+    px = _SYNTH_ANCHOR[asset]
+    out = []
+    for i in range(limit):
+        px *= 1 + _wobble(f"{asset}-walk-{i}", 0.012)
+        out.append(round(px, 2))
+    return out
 
 
 def get_klines(asset: str, interval: str = "1h", limit: int = 168) -> list[float]:
     """Return a list of close prices; synthetic fallback is a random walk."""
     sym = UNIVERSE[asset][0]
-    try:
-        with httpx.Client(timeout=6.0) as c:
-            r = c.get(
-                f"{SPOT_BASE}/api/v3/klines",
-                params={"symbol": sym, "interval": interval, "limit": limit},
-            )
-            r.raise_for_status()
-            return [float(row[4]) for row in r.json()]
-    except Exception:
-        anchor = _SYNTH_ANCHOR[asset]
-        out = []
-        px = anchor
-        for i in range(limit):
-            px *= 1 + _wobble(f"{asset}-walk-{i}", 0.012)
-            out.append(round(px, 2))
-        return out
+    return _cached(
+        f"klines:{sym}:{interval}:{limit}",
+        lambda: _fetch_klines(sym, interval, limit),
+        lambda: _synth_klines(asset, limit),
+    )
 
 
 def realized_vol_pct(closes: list[float]) -> float:

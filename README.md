@@ -16,12 +16,12 @@
 参赛 **Binance Agent OS 迷你黑客松** · 赛道：*支付工作流（Agent 与 Agent 之间的支付）*。
 
 ```
-┌───────────────────────────┐   x402: 402 → 付 USDC → 200   ┌──────────────────────────────┐
-│  分析师 Agent（买方）      │ ───────────────────────────────▶ │ 卖方 A · 资金费率扫描器       │  $1.50
-│  · Binance MCP 客户端      │                                 └──────────────────────────────┘
-│  · 读子账户                │ ───────────────────────────────▶ ┌──────────────────────────────┐
-│  · 规划买什么              │                                 │ 卖方 B · 风险分析器           │  $1.75
-│  · 用 x402 结算            │                                 └──────────────────────────────┘
+┌───────────────────────────┐  x402: 402 → 付 USDC → 200   ┌────────────────────────────┐
+│  分析师 Agent（买方）      │ ───────────────────────────────▶ │ 卖方 · 资金费率扫描器       │ $1.50
+│  · Binance MCP 客户端      │ ───────────────────────────────▶ │ 卖方 · 风险分析器           │ $1.75
+│  · 读子账户                │ ───────────────────────────────▶ │ 卖方 · 动量/趋势扫描器      │ $1.25
+│  · 从注册表发现卖方        │                                 └────────────────────────────┘
+│  · 规划买什么 → 用 x402 付 │    卖方在 sellers.registry.json 中登记；加一条即入场
 │  · 生成 HTML 报告          │
 │  · 人工批准的 Convert      │
 └───────────────────────────┘
@@ -95,10 +95,11 @@ python -m alphabazaar.capture < raw.json > alphabazaar/snapshot.json  # 输入�
 #### 5. 跑完整循环
 
 ```bash
-./run_demo.sh          # 启动两个卖方 agent，跑分析师，然后收尾
+./run_demo.sh          # 启动三个卖方 agent，跑分析师，然后收尾
 # 或手动：
-python -m uvicorn sellers.funding_scanner:app --port 8801 &
-python -m uvicorn sellers.risk_analyzer:app  --port 8802 &
+python -m uvicorn sellers.funding_scanner:app  --port 8801 &
+python -m uvicorn sellers.risk_analyzer:app    --port 8802 &
+python -m uvicorn sellers.momentum_scanner:app --port 8803 &
 python -m alphabazaar.cli run
 ```
 
@@ -157,10 +158,11 @@ alphabazaar/
   analyst.py        买方 agent 编排
   report.py         Report -> HTML
   cli.py            `python -m alphabazaar.cli run`
+  registry.py       seller discovery (reads sellers.registry.json)
 sellers/
   common.py         FastAPI 的 x402 paywall
-  funding_scanner.py  卖方 A
-  risk_analyzer.py    卖方 B
+  funding_scanner.py / risk_analyzer.py / momentum_scanner.py   三个卖方 agent
+sellers.registry.json  卖方登记表   ·   render.yaml  一键部署三个卖方到公网
 run_demo.sh         一条命令的 demo
 ```
 
@@ -209,12 +211,12 @@ isolated sub-account with **no withdrawal permissions**.
 Submitted to the **Binance Agent OS mini hackathon** · Track: *Payment workflow (agent-to-agent payments)*.
 
 ```
-┌───────────────────────────┐   x402: 402 → pay USDC → 200   ┌──────────────────────────────┐
-│  Analyst agent (buyer)    │ ───────────────────────────────▶ │ Seller A · Funding scanner   │  $1.50
-│  · Binance MCP client     │                                 └──────────────────────────────┘
-│  · reads sub-account      │ ───────────────────────────────▶ ┌──────────────────────────────┐
-│  · plans what to buy      │                                 │ Seller B · Risk analyzer     │  $1.75
-│  · settles via x402       │                                 └──────────────────────────────┘
+┌───────────────────────────┐  x402: 402 → pay USDC → 200  ┌────────────────────────────┐
+│  Analyst agent (buyer)    │ ───────────────────────────────▶ │ Seller · Funding scanner   │ $1.50
+│  · Binance MCP client     │ ───────────────────────────────▶ │ Seller · Risk analyzer     │ $1.75
+│  · reads sub-account      │ ───────────────────────────────▶ │ Seller · Momentum scanner  │ $1.25
+│  · discovers sellers      │                                 └────────────────────────────┘
+│  · plans → pays via x402  │    sellers listed in sellers.registry.json; add one to join
 │  · writes HTML report     │
 │  · human-approved Convert │
 └───────────────────────────┘
@@ -294,10 +296,11 @@ allowlist opens:
 #### 5. Run the whole loop
 
 ```bash
-./run_demo.sh          # starts both seller agents, runs the analyst, tears down
+./run_demo.sh          # starts the three seller agents, runs the analyst, tears down
 # or manually:
-python -m uvicorn sellers.funding_scanner:app --port 8801 &
-python -m uvicorn sellers.risk_analyzer:app  --port 8802 &
+python -m uvicorn sellers.funding_scanner:app  --port 8801 &
+python -m uvicorn sellers.risk_analyzer:app    --port 8802 &
+python -m uvicorn sellers.momentum_scanner:app --port 8803 &
 python -m alphabazaar.cli run
 ```
 
@@ -364,10 +367,11 @@ alphabazaar/
   analyst.py        the buyer agent orchestration
   report.py         Report -> HTML
   cli.py            `python -m alphabazaar.cli run`
+  registry.py       seller discovery (reads sellers.registry.json)
 sellers/
   common.py         x402 paywall for FastAPI
-  funding_scanner.py  Seller A
-  risk_analyzer.py    Seller B
+  funding_scanner.py / risk_analyzer.py / momentum_scanner.py   the three seller agents
+sellers.registry.json   the seller directory   ·   render.yaml  deploy all three publicly
 run_demo.sh         one-command demo
 ```
 
