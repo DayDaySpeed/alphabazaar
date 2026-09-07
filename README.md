@@ -109,7 +109,8 @@ SELLER_RISK_URL=https://alphabazaar-risk-analyzer.onrender.com \
 SELLER_MOMENTUM_URL=https://alphabazaar-momentum-scanner.onrender.com \
 BINANCE_MODE=snapshot X402_MODE=mock \
   python -m alphabazaar.cli run
-# 或把这三个 URL 放进一个托管的 registry：SELLER_REGISTRY=https://…/registry.json
+# 注册表已内置这三个公网 URL；bare `python -m alphabazaar.cli run` 直接对着云上跑。
+# 换一份托管注册表：SELLER_REGISTRY=https://raw.githubusercontent.com/<你>/alphabazaar/main/alphabazaar/sellers.registry.json
 ```
 
 #### 6. 测试
@@ -329,7 +330,8 @@ SELLER_RISK_URL=https://alphabazaar-risk-analyzer.onrender.com \
 SELLER_MOMENTUM_URL=https://alphabazaar-momentum-scanner.onrender.com \
 BINANCE_MODE=snapshot X402_MODE=mock \
   python -m alphabazaar.cli run
-# or host those three URLs in a registry: SELLER_REGISTRY=https://…/registry.json
+# the registry already ships these public URLs, so a bare `python -m alphabazaar.cli run`
+# hits the cloud market directly. Swap registries: SELLER_REGISTRY=https://…/sellers.registry.json
 ```
 
 #### 6. Tests

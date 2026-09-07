@@ -1,10 +1,10 @@
 {
-  "note": "Seller agents the buyer can discover and pay over x402. Add an entry and any x402 agent joins the market. Per-entry URL override: SELLER_<ID>_URL. Whole-registry override: SELLER_REGISTRY (path or https URL).",
+  "note": "Public directory of x402 seller agents the buyer discovers and pays. Add an entry and any x402 agent joins the market. run_demo.sh overrides these to localhost via SELLER_<ID>_URL; override the whole file with SELLER_REGISTRY (path or https URL).",
   "sellers": [
     {
       "id": "funding",
       "name": "Funding-rate & basis scanner",
-      "url": "http://127.0.0.1:8801",
+      "url": "https://alphabazaar-funding-scanner.onrender.com",
       "path": "/analysis",
       "price_usdc": 1.50,
       "tags": ["funding", "carry", "basis", "perp"],
@@ -13,7 +13,7 @@
     {
       "id": "risk",
       "name": "Volatility & correlation risk analyzer",
-      "url": "http://127.0.0.1:8802",
+      "url": "https://alphabazaar-risk-analyzer.onrender.com",
       "path": "/analysis",
       "price_usdc": 1.75,
       "tags": ["risk", "volatility", "correlation", "concentration", "regime"],
@@ -22,7 +22,7 @@
     {
       "id": "momentum",
       "name": "Momentum & trend scanner",
-      "url": "http://127.0.0.1:8803",
+      "url": "https://alphabazaar-momentum-scanner.onrender.com",
       "path": "/analysis",
       "price_usdc": 1.25,
       "tags": ["momentum", "trend", "breakout", "meanreversion"],

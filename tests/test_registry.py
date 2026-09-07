@@ -17,6 +17,7 @@ def test_bundled_registry_has_three_sellers_with_endpoints(monkeypatch):
     assert ids == ["funding", "risk", "momentum"]
     for e in sellers:
         assert e["endpoint"] == e["url"].rstrip("/") + e["path"]
+        assert e["url"].startswith("http")
         assert e["price_usdc"] > 0 and e["tags"] and e["blurb"]
 
     cat = registry.catalog(sellers)
@@ -30,7 +31,7 @@ def test_per_entry_url_override(monkeypatch):
     by_id = {e["id"]: e for e in registry.load_sellers()}
     assert by_id["momentum"]["url"] == "https://momentum.example.com"
     assert by_id["momentum"]["endpoint"] == "https://momentum.example.com/analysis"
-    assert by_id["funding"]["url"].startswith("http://127.0.0.1")
+    assert by_id["funding"]["url"] != "https://momentum.example.com"  # untouched
 
 
 def test_registry_file_override(monkeypatch, tmp_path):
