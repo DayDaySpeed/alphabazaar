@@ -205,12 +205,13 @@ X402_MODE=live X402_WALLET_PRIVATE_KEY=0x... \
 # → 打印 https://sepolia.basescan.org/tx/0x... 
 ```
 
-**已在链上验证**（Base Sepolia，2026-09-06）—— 一次完整 demo 循环的两笔真实 A2A 付款：
+**已在链上验证**（Base Sepolia，2026-09-06）—— 一次完整 demo 循环里三个卖方的真实 A2A 付款：
 
 | 付款 | 金额 | tx |
 |---|---|---|
-| 分析师 → 资金费率扫描器 | 1.5 USDC | [`0x731756e1…`](https://sepolia.basescan.org/tx/0x731756e1b97ee275596413abc552a0ac69336f187e6ece9ec933c6e64bff8962) |
-| 分析师 → 风险分析器 | 1.75 USDC | [`0x0d35528b…`](https://sepolia.basescan.org/tx/0x0d35528bd069c0e641ac48ea9ac3311bdf9ee863397d63807ee7ee7a9f280731) |
+| 分析师 → 资金费率扫描器 | 1.5 USDC | [`0x3da76ce8…`](https://sepolia.basescan.org/tx/0x3da76ce89a6f38ca8f70e327ad8e1b45d949c692975d2203833ba8d81c93dd31) |
+| 分析师 → 风险分析器 | 1.75 USDC | [`0xc0b26fd2…`](https://sepolia.basescan.org/tx/0xc0b26fd223b6587a49dd106218ed7e334e34b5955e9242194b3bae90261d0040) |
+| 分析师 → 动量扫描器 | 1.25 USDC | [`0x1d5ba965…`](https://sepolia.basescan.org/tx/0x1d5ba965bf817711051ab8ebebedbe0a35c08345fece54f0d79ecbf7146da1c9) |
 
 由 facilitator（`0xd407…f1bf`）代付 gas 提交 `transferWithAuthorization`；付款钱包
 无需持有 ETH。
@@ -439,13 +440,13 @@ X402_MODE=live X402_WALLET_PRIVATE_KEY=0x... \
 # → prints https://sepolia.basescan.org/tx/0x...
 ```
 
-**Verified on-chain** (Base Sepolia, 2026-09-06) — the two real A2A payments from
-one full demo loop:
+**Verified on-chain** (Base Sepolia, 2026-09-06) — the three real A2A payments from one full demo loop:
 
 | Payment | Amount | tx |
 |---|---|---|
-| analyst → funding scanner | 1.5 USDC | [`0x731756e1…`](https://sepolia.basescan.org/tx/0x731756e1b97ee275596413abc552a0ac69336f187e6ece9ec933c6e64bff8962) |
-| analyst → risk analyzer | 1.75 USDC | [`0x0d35528b…`](https://sepolia.basescan.org/tx/0x0d35528bd069c0e641ac48ea9ac3311bdf9ee863397d63807ee7ee7a9f280731) |
+| analyst → funding scanner | 1.5 USDC | [`0x3da76ce8…`](https://sepolia.basescan.org/tx/0x3da76ce89a6f38ca8f70e327ad8e1b45d949c692975d2203833ba8d81c93dd31) |
+| analyst → risk analyzer | 1.75 USDC | [`0xc0b26fd2…`](https://sepolia.basescan.org/tx/0xc0b26fd223b6587a49dd106218ed7e334e34b5955e9242194b3bae90261d0040) |
+| analyst → momentum scanner | 1.25 USDC | [`0x1d5ba965…`](https://sepolia.basescan.org/tx/0x1d5ba965bf817711051ab8ebebedbe0a35c08345fece54f0d79ecbf7146da1c9) |
 
 The facilitator (`0xd407…f1bf`) pays gas to submit `transferWithAuthorization`;
 the payer wallet holds no ETH.
