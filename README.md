@@ -26,15 +26,16 @@ Submitted to the **Binance Agent OS mini hackathon** · Track: *Payment workflow
 
 ## Quickstart
 
-### 1. Prepare a Binance account (for `live` mode)
+### 1. Prepare a Binance account (for `snapshot` / `live` mode)
 
 1. Complete KYC on Binance.
 2. Open an **Agentic sub-account** from the Agent OS page.
 3. Transfer in ~**30–50 USDC** plus a little BTC/ETH/BNB for the demo.
 
-> You can skip this and run everything in **`mock` mode** first — it's fully offline
-> (synthetic portfolio, live-or-synthetic public market data) and is what the demo
-> video uses.
+> You can skip this and run everything in **`mock` mode** — fully offline
+> (synthetic portfolio, live-or-synthetic public market data). The demo video
+> uses **`snapshot` mode**: real sub-account data, read through a supported MCP
+> client (see step 3 and *Platform limits we hit*).
 
 ### 2. Install
 
@@ -120,10 +121,41 @@ pytest -q      # offline; no credentials needed
 
 | Agent OS capability | Where |
 |---|---|
-| **MCP** — Agentic sub-account balances, 24h tickers, perp funding, Convert | `alphabazaar/binance_client.py` (`McpBinanceClient`) |
+| **MCP** — Agentic sub-account balances, 24h tickers, perp funding, Convert | `alphabazaar/mcp_client.py` — `SnapshotBinanceClient` (replay a real capture) + `McpBinanceClient` (direct CIMD OAuth). See *Platform limits we hit*. |
 | **x402** — agent-to-agent payment (`exact` scheme, USDC on Base) | `alphabazaar/x402.py`, `sellers/common.py` |
 | **Agentic sub-account isolation** — no withdrawal scope, transfers stay in-account | trades are Convert-only + human-approved |
 | **Public market data** — tickers / funding / klines (no auth) | `alphabazaar/marketdata.py`, used by the seller agents |
+
+## Platform limits we hit
+
+Two things about Agent OS as it stands today (Sept 2026), and what we did about them:
+
+**1. The MCP endpoint is gated to a client allowlist.**
+`agent.binance.com/mcp/agentic` only accepts OAuth from Claude, Claude Code,
+Codex, ChatGPT, Cursor and VS Code. A custom client — even a correct one — is
+turned away at the consent screen: *"The AI Agent you are using is not currently
+supported. Please connect using a supported Agent to continue."* Binance
+advertises CIMD (`client_id_metadata_document_supported`), the mechanism for
+third-party clients to self-register, so this reads like a soft-launch gate
+rather than a permanent policy.
+
+- *What AlphaBazaar does:* the analyst reads the sub-account **through** a
+  supported client (we used Claude Code) and replays that capture in `snapshot`
+  mode — same models, same report, real balances. The direct-OAuth path
+  (`McpBinanceClient`, CIMD, `token_endpoint_auth_method=none`) is written and
+  tested, ready for when registration opens.
+- *What is genuinely live:* every balance in `snapshot.json` was created and
+  rebalanced by **8 real Convert orders** through the MCP `convert_*` tools
+  (order IDs in the file's `provenance`, all `orderStatus: SUCCESS`), including
+  the exact trim the analyst proposed in the demo.
+
+**2. x402 settlement runs in mock mode.**
+The 402 → pay → 200 handshake, the payment headers, and the spend ledger are all
+real; only the on-chain USDC transfer is simulated (`X402_MODE=mock` — a
+well-formed fake tx hash, ledger still decrements and the daily cap still bites).
+This is a deliberate risk choice for a public demo. Going live is a wallet key
+plus a facilitator — see *Going live with x402* below; the three `# HOOK` points
+are marked in `x402.py`.
 
 ## Layout
 
