@@ -184,6 +184,16 @@ X402_MODE=live X402_WALLET_PRIVATE_KEY=0x... \
 # → 打印 https://sepolia.basescan.org/tx/0x... 
 ```
 
+**已在链上验证**（Base Sepolia，2026-09-06）—— 一次完整 demo 循环的两笔真实 A2A 付款：
+
+| 付款 | 金额 | tx |
+|---|---|---|
+| 分析师 → 资金费率扫描器 | 1.5 USDC | [`0x731756e1…`](https://sepolia.basescan.org/tx/0x731756e1b97ee275596413abc552a0ac69336f187e6ece9ec933c6e64bff8962) |
+| 分析师 → 风险分析器 | 1.75 USDC | [`0x0d35528b…`](https://sepolia.basescan.org/tx/0x0d35528bd069c0e641ac48ea9ac3311bdf9ee863397d63807ee7ee7a9f280731) |
+
+由 facilitator（`0xd407…f1bf`）代付 gas 提交 `transferWithAuthorization`；付款钱包
+无需持有 ETH。
+
 `base` 主网：把 `X402_NETWORK=base`、换一个支持主网的 facilitator、钱包放真 USDC。
 
 ---
@@ -382,6 +392,17 @@ X402_MODE=live X402_WALLET_PRIVATE_KEY=0x... \
   python -m alphabazaar.cli x402-selftest
 # → prints https://sepolia.basescan.org/tx/0x...
 ```
+
+**Verified on-chain** (Base Sepolia, 2026-09-06) — the two real A2A payments from
+one full demo loop:
+
+| Payment | Amount | tx |
+|---|---|---|
+| analyst → funding scanner | 1.5 USDC | [`0x731756e1…`](https://sepolia.basescan.org/tx/0x731756e1b97ee275596413abc552a0ac69336f187e6ece9ec933c6e64bff8962) |
+| analyst → risk analyzer | 1.75 USDC | [`0x0d35528b…`](https://sepolia.basescan.org/tx/0x0d35528bd069c0e641ac48ea9ac3311bdf9ee863397d63807ee7ee7a9f280731) |
+
+The facilitator (`0xd407…f1bf`) pays gas to submit `transferWithAuthorization`;
+the payer wallet holds no ETH.
 
 For `base` mainnet: set `X402_NETWORK=base`, point at a mainnet-capable
 facilitator, and fund the wallet with real USDC.
