@@ -95,16 +95,22 @@ python -m alphabazaar.capture < raw.json > alphabazaar/snapshot.json  # 输入�
 #### 5. 跑完整循环
 
 ```bash
-./run_demo.sh          # 启动三个卖方 agent，跑分析师，然后收尾
-# 或手动：
-python -m uvicorn sellers.funding_scanner:app  --port 8801 &
-python -m uvicorn sellers.risk_analyzer:app    --port 8802 &
-python -m uvicorn sellers.momentum_scanner:app --port 8803 &
-python -m alphabazaar.cli run
+./run_demo.sh          # 启动本地三个卖方 agent，跑分析师，然后收尾
 ```
 
-分析师读子账户 → 规划 → 用 x402 付每个卖方 → 写 `reports/YYYY-MM-DD.html` → 打印再平衡建议
-并请求批准（输 `y` 在**子账户内**执行一笔 Convert）。
+分析师读子账户 → 从注册表**发现**卖方 → 用 x402 付每个卖方 → 写 `reports/YYYY-MM-DD.html`
+→ 打印再平衡建议并请求批准（输 `y` 在**子账户内**执行一笔 Convert）。
+
+**对着已部署的公网卖方跑**（见《部署卖方》），不需要本地起服务：
+
+```bash
+SELLER_FUNDING_URL=https://alphabazaar-funding-scanner.onrender.com \
+SELLER_RISK_URL=https://alphabazaar-risk-analyzer.onrender.com \
+SELLER_MOMENTUM_URL=https://alphabazaar-momentum-scanner.onrender.com \
+BINANCE_MODE=snapshot X402_MODE=mock \
+  python -m alphabazaar.cli run
+# 或把这三个 URL 放进一个托管的 registry：SELLER_REGISTRY=https://…/registry.json
+```
 
 #### 6. 测试
 
@@ -165,6 +171,17 @@ sellers/
 sellers.registry.json  卖方登记表   ·   render.yaml  一键部署三个卖方到公网
 run_demo.sh         一条命令的 demo
 ```
+
+### 部署卖方
+
+`render.yaml` 是一份 [Render](https://render.com) Blueprint。Render → **New → Blueprint**
+→ 连接本仓库 → 它读到 `render.yaml`，创建三个免费 Web 服务
+（`uvicorn sellers.<name>:app`，`PYTHON_VERSION=3.12`）。首次部署会让你填三个
+`SELLER_*_PAY_TO`（`mock` 演示随便填个地址即可）。拿到三个
+`https://alphabazaar-*.onrender.com` URL 后，见上面第 5 步。
+
+- 免费档 15 分钟无请求会休眠，首次请求冷启动 ~30–60 秒 —— 演示前先各访问一次 `/` 唤醒。
+- 云上跑真链 x402：每个服务面板里设 `X402_MODE=live` + 真实 `SELLER_*_PAY_TO`。
 
 ### 真实 x402 结算（Base Sepolia）
 
@@ -296,17 +313,24 @@ allowlist opens:
 #### 5. Run the whole loop
 
 ```bash
-./run_demo.sh          # starts the three seller agents, runs the analyst, tears down
-# or manually:
-python -m uvicorn sellers.funding_scanner:app  --port 8801 &
-python -m uvicorn sellers.risk_analyzer:app    --port 8802 &
-python -m uvicorn sellers.momentum_scanner:app --port 8803 &
-python -m alphabazaar.cli run
+./run_demo.sh          # starts the three local seller agents, runs the analyst, tears down
 ```
 
-The analyst reads the sub-account → plans → pays each seller over x402 → writes
-`reports/YYYY-MM-DD.html` → prints any proposed rebalance and asks for approval
-(`y` executes a Convert **inside the sub-account**).
+The analyst reads the sub-account → **discovers** sellers from the registry →
+pays each over x402 → writes `reports/YYYY-MM-DD.html` → prints any proposed
+rebalance and asks for approval (`y` executes a Convert **inside the sub-account**).
+
+**Against the deployed public sellers** (see *Deploying the sellers*) — no local
+services needed:
+
+```bash
+SELLER_FUNDING_URL=https://alphabazaar-funding-scanner.onrender.com \
+SELLER_RISK_URL=https://alphabazaar-risk-analyzer.onrender.com \
+SELLER_MOMENTUM_URL=https://alphabazaar-momentum-scanner.onrender.com \
+BINANCE_MODE=snapshot X402_MODE=mock \
+  python -m alphabazaar.cli run
+# or host those three URLs in a registry: SELLER_REGISTRY=https://…/registry.json
+```
 
 #### 6. Tests
 
@@ -374,6 +398,20 @@ sellers/
 sellers.registry.json   the seller directory   ·   render.yaml  deploy all three publicly
 run_demo.sh         one-command demo
 ```
+
+### Deploying the sellers
+
+`render.yaml` is a [Render](https://render.com) Blueprint. Render → **New →
+Blueprint** → connect this repo → it reads `render.yaml` and creates three free
+web services (`uvicorn sellers.<name>:app`, `PYTHON_VERSION=3.12`). The first
+deploy prompts for the three `SELLER_*_PAY_TO` values (any address is fine for a
+`mock` demo). Take the three `https://alphabazaar-*.onrender.com` URLs and use
+them in step 5 above.
+
+- Free tier sleeps after 15 min idle; the first request cold-starts in ~30–60s —
+  hit each `/` once before a demo to wake them.
+- For live x402 on the cloud: set `X402_MODE=live` + a real `SELLER_*_PAY_TO` in
+  each service's dashboard.
 
 ### Real x402 settlement (Base Sepolia)
 
