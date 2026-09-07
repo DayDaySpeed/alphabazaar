@@ -63,7 +63,7 @@ BINANCE_MODE=snapshot X402_MODE=mock ./run_demo.sh --no-approve
 ```
 
 下游逻辑与 live 读取逐字节一致——同样的模型、同样的报告。仓库自带一份真实快照
-（子账户 uid 1274306951，由 **8 笔真实 Convert 订单**铺仓 + 再平衡而成，order ID 在文件的
+（子账户 uid 1274306951，由 **10 笔真实 Convert 订单**铺仓 + 再平衡而成，order ID 在文件的
 `provenance` 字段里），路径 `alphabazaar/snapshot.json`。
 
 **刷新**快照：在受支持的客户端里调只读工具（`spot_getAccount`、`spot_ticker24hr` ×4、
@@ -90,7 +90,7 @@ python -m alphabazaar.capture < raw.json > alphabazaar/snapshot.json  # 输入�
 | `BINANCE_OAUTH_CLIENT_METADATA_URL` | — | **`live` OAuth 必需**——公网 HTTPS CIMD 文档 URL |
 | `X402_MODE` | `mock` | `mock` = 模拟结算（假 tx hash），账本仍递减。`live` = 经 facilitator 在 Base 上真实结算。 |
 | `X402_DAILY_CAP_USDC` | `20` | 对齐币安 x402 的 $20/天上限；agent 到此停止购买。 |
-| `SELLER_FUNDING_URL` / `SELLER_RISK_URL` | localhost | 卖方部署后填公开 URL |
+| `SELLER_FUNDING_URL` / `SELLER_RISK_URL` / `SELLER_MOMENTUM_URL` | — | 留空即用注册表内置的 onrender URL；设值可覆盖单个卖方 |
 
 #### 5. 跑完整循环
 
@@ -142,7 +142,7 @@ is not currently supported. Please connect using a supported Agent to continue."
 - *AlphaBazaar 的做法：* 分析师**经由**一个受支持的客户端（我们用 Claude Code）读子账户，
   在 `snapshot` 模式回放这份快照——同样的模型、同样的报告、真实的余额。直连 OAuth 路径
   （`McpBinanceClient`，CIMD，`token_endpoint_auth_method=none`）已写好并测试，等注册开放即可用。
-- *真正 live 的部分：* `snapshot.json` 里的每一笔余额都由 **8 笔真实 Convert 订单**经 MCP
+- *真正 live 的部分：* `snapshot.json` 里的每一笔余额都由 **10 笔真实 Convert 订单**经 MCP
   `convert_*` 工具铺出并再平衡（order ID 在文件 `provenance` 里，全部 `orderStatus: SUCCESS`），
   包括分析师在 demo 里提议的那笔削减。
 
@@ -281,7 +281,7 @@ BINANCE_MODE=snapshot X402_MODE=mock ./run_demo.sh --no-approve
 ```
 
 The run downstream is byte-for-byte a live read — same models, same report. A
-real capture (uid 1274306951, built and rebalanced with 8 live Convert orders —
+real capture (uid 1274306951, built and rebalanced with 10 live Convert orders —
 IDs in the file's `provenance`) ships in `alphabazaar/snapshot.json`.
 
 To **refresh** the capture: from the supported client, call the read-only tools
@@ -311,7 +311,7 @@ allowlist opens:
 | `BINANCE_OAUTH_CLIENT_METADATA_URL` | — | **required for `live` OAuth** — public HTTPS CIMD document URL |
 | `X402_MODE` | `mock` | `mock` = simulated settlement (fake tx hash), ledger still moves. `live` = real Base settlement via a facilitator. |
 | `X402_DAILY_CAP_USDC` | `20` | mirrors Binance x402's $20/day cap; the agent stops buying at this. |
-| `SELLER_FUNDING_URL` / `SELLER_RISK_URL` | localhost | point at deployed seller URLs when hosted |
+| `SELLER_FUNDING_URL` / `SELLER_RISK_URL` / `SELLER_MOMENTUM_URL` | — | blank uses the registry's onrender URLs; set to override one seller |
 
 #### 5. Run the whole loop
 
@@ -453,6 +453,12 @@ the payer wallet holds no ETH.
 
 For `base` mainnet: set `X402_NETWORK=base`, point at a mainnet-capable
 facilitator, and fund the wallet with real USDC.
+
+---
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
 
 ---
 
