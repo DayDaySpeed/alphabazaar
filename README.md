@@ -37,7 +37,7 @@
 
 > 也可以跳过这步，全程用 **`mock` 模式** ——完全离线（合成持仓、在线或合成的公开行情）。
 > 演示视频用的是 **`snapshot` 模式**：真实子账户数据，经受支持的 MCP 客户端读取
-> （见第 3 步和《我们遇到的平台限制》）。
+> （见第 3 步和《遇到的平台限制》）。
 
 #### 2. 安装
 
@@ -54,7 +54,7 @@ Binance Agent OS **把 MCP 端点限制给一个固定的客户端白名单**—
 ChatGPT、Cursor、VS Code。自定义 OAuth 客户端（即使配置完全正确）会在授权页被拒：
 *"The AI Agent you are using is not currently supported."* 在币安开放客户端注册之前，有两条路：
 
-**`snapshot` 模式（推荐，演示用的就是这个）。** 用受支持的客户端读子账户，让 AlphaBazaar 回放这份快照：
+**`snapshot` 模式** 用受支持的客户端读子账户，让 AlphaBazaar 回放这份快照：
 
 ```bash
 claude mcp add binance-mcp-server --transport http https://agent.binance.com/mcp/agentic
@@ -361,4 +361,4 @@ Set `X402_MODE=live`, `X402_NETWORK=base`, and fund the Agentic wallet.
 
 ---
 
-*Not financial advice. Demo software. / 非投资建议，演示软件。*
+*Not financial advice. Demo software. / 非投资建议，演示程序。*
