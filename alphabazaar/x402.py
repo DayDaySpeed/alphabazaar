@@ -32,7 +32,11 @@ import json
 import secrets
 import time
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import datetime, timezone
+
+
+def _utc_day() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
 
 import httpx
 
@@ -90,7 +94,7 @@ class Ledger:
     balance_usdc: float
     daily_cap_usdc: float = field(default_factory=lambda: settings.x402_daily_cap_usdc)
     payments: list[Payment] = field(default_factory=list)
-    _day: str = field(default_factory=lambda: date.today().isoformat())
+    _day: str = field(default_factory=_utc_day)  # UTC — matches Payment.at
 
     @property
     def spent_today(self) -> float:
