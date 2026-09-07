@@ -175,14 +175,15 @@ run_demo.sh         一条命令的 demo
 
 ### 部署卖方
 
-`render.yaml` 是一份 [Render](https://render.com) Blueprint。Render → **New → Blueprint**
-→ 连接本仓库 → 它读到 `render.yaml`，创建三个免费 Web 服务
-（`uvicorn sellers.<name>:app`，`PYTHON_VERSION=3.12`）。首次部署会让你填三个
-`SELLER_*_PAY_TO`（`mock` 演示随便填个地址即可）。拿到三个
-`https://alphabazaar-*.onrender.com` URL 后，见上面第 5 步。
+`render.yaml` 是一份 [Render](https://render.com) Blueprint，配置全声明式：Render →
+**New → Blueprint** → 连接本仓库 → 它读到 `render.yaml`，创建三个免费 Web 服务
+（`uvicorn sellers.<name>:app`，`PYTHON_VERSION=3.12`，`X402_MODE=live`，
+`SELLER_*_PAY_TO` 是 Base Sepolia 收款地址，已写在文件里）。拿到三个
+`https://alphabazaar-*.onrender.com` URL 后，见上面第 5 步；改配置就改 `render.yaml`
+再 push。
 
 - 免费档 15 分钟无请求会休眠，首次请求冷启动 ~30–60 秒 —— 演示前先各访问一次 `/` 唤醒。
-- 云上跑真链 x402：每个服务面板里设 `X402_MODE=live` + 真实 `SELLER_*_PAY_TO`。
+- `base` 主网：把 `X402_NETWORK` 改成 `base`，收款地址换成你控制的。
 
 ### 真实 x402 结算（Base Sepolia）
 
@@ -403,17 +404,18 @@ run_demo.sh         one-command demo
 
 ### Deploying the sellers
 
-`render.yaml` is a [Render](https://render.com) Blueprint. Render → **New →
-Blueprint** → connect this repo → it reads `render.yaml` and creates three free
-web services (`uvicorn sellers.<name>:app`, `PYTHON_VERSION=3.12`). The first
-deploy prompts for the three `SELLER_*_PAY_TO` values (any address is fine for a
-`mock` demo). Take the three `https://alphabazaar-*.onrender.com` URLs and use
-them in step 5 above.
+`render.yaml` is a fully declarative [Render](https://render.com) Blueprint.
+Render → **New → Blueprint** → connect this repo → it reads `render.yaml` and
+creates three free web services (`uvicorn sellers.<name>:app`,
+`PYTHON_VERSION=3.12`, `X402_MODE=live`, with the Base Sepolia
+`SELLER_*_PAY_TO` recipient addresses baked in). Take the three
+`https://alphabazaar-*.onrender.com` URLs and use them in step 5; to change the
+deployed config, edit `render.yaml` and push.
 
 - Free tier sleeps after 15 min idle; the first request cold-starts in ~30–60s —
   hit each `/` once before a demo to wake them.
-- For live x402 on the cloud: set `X402_MODE=live` + a real `SELLER_*_PAY_TO` in
-  each service's dashboard.
+- For `base` mainnet: set `X402_NETWORK=base` and swap the addresses for ones you
+  control.
 
 ### Real x402 settlement (Base Sepolia)
 

@@ -1,10 +1,10 @@
 # Deploy the three AlphaBazaar seller agents as public x402 services.
 # https://render.com  →  New  →  Blueprint  →  point at this repo.
 #
-# After the first deploy, set each service's *_PAY_TO to a real address (Base
-# Sepolia for the demo) and X402_MODE=live in the Render dashboard, then put the
-# three public URLs in the buyer's env (SELLER_FUNDING_URL / _RISK_URL /
-# _MOMENTUM_URL) or in a hosted registry (SELLER_REGISTRY).
+# Config is declarative: X402_MODE=live and the SELLER_*_PAY_TO recipient
+# addresses (Base Sepolia — receiving addresses, not secrets) are set here, so a
+# push redeploys the whole market. For base mainnet: bump X402_NETWORK and swap
+# the addresses for ones you control.
 services:
   - type: web
     name: alphabazaar-funding-scanner
@@ -17,11 +17,11 @@ services:
       - key: PYTHON_VERSION
         value: "3.12"
       - key: X402_MODE
-        value: mock          # flip to live once SELLER_FUNDING_PAY_TO is set
+        value: live
       - key: X402_NETWORK
         value: base-sepolia
       - key: SELLER_FUNDING_PAY_TO
-        sync: false
+        value: "0x584efd7B6E9eEAe51DC9f6e733C21565CaD4ba2b"
 
   - type: web
     name: alphabazaar-risk-analyzer
@@ -34,11 +34,11 @@ services:
       - key: PYTHON_VERSION
         value: "3.12"
       - key: X402_MODE
-        value: mock
+        value: live
       - key: X402_NETWORK
         value: base-sepolia
       - key: SELLER_RISK_PAY_TO
-        sync: false
+        value: "0xfEa26142E1E597Cbe964815a7F24711b562ce121"
 
   - type: web
     name: alphabazaar-momentum-scanner
@@ -51,8 +51,8 @@ services:
       - key: PYTHON_VERSION
         value: "3.12"
       - key: X402_MODE
-        value: mock
+        value: live
       - key: X402_NETWORK
         value: base-sepolia
       - key: SELLER_MOMENTUM_PAY_TO
-        sync: false
+        value: "0x584efd7B6E9eEAe51DC9f6e733C21565CaD4ba2b"
