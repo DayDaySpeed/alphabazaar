@@ -55,4 +55,4 @@ services:
       - key: X402_NETWORK
         value: base-sepolia
       - key: SELLER_MOMENTUM_PAY_TO
-        value: "0x584efd7B6E9eEAe51DC9f6e733C21565CaD4ba2b"
+        value: "0xC950AE385C74083Ec0cacbF8F4d56ab7A00AA425"
