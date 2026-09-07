@@ -7,6 +7,8 @@ Price: $1.50 per call (x402).
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI, Request
 
 from alphabazaar import marketdata
@@ -15,7 +17,8 @@ from alphabazaar.models import Signal
 from .common import charge, with_settlement
 
 PRICE_USDC = 1.50
-PAY_TO = "0xF00D5canner00000000000000000000000000A1pha"
+# In live mode set SELLER_FUNDING_PAY_TO to a real address the facilitator can pay.
+PAY_TO = os.environ.get("SELLER_FUNDING_PAY_TO", "0xF00D5canner00000000000000000000000000A1pha")
 ASSETS = ["BTC", "ETH", "BNB", "SOL"]
 
 app = FastAPI(title="AlphaBazaar Seller · Funding Scanner")

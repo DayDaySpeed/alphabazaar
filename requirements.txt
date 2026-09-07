@@ -10,5 +10,9 @@ pydantic>=2.6
 fastapi>=0.110
 uvicorn[standard]>=0.29
 
+# x402 live settlement (X402_MODE=live): EIP-712 signing of the EIP-3009 authorization.
+# Mock mode never imports it.
+eth-account>=0.13
+
 # Real Binance MCP client (BINANCE_MODE=live). Safe to keep installed for mock too.
 mcp>=2.1

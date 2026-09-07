@@ -1,4 +1,6 @@
 .env
+.env.*
+.x402-wallets*
 __pycache__/
 *.pyc
 .venv/

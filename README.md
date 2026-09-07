@@ -116,7 +116,7 @@ pytest -q      # 离线；无需凭证
 | Agent OS 能力 | 用在哪 |
 |---|---|
 | **MCP** —— Agentic 子账户余额、24h 行情、永续资金费率、Convert | `alphabazaar/mcp_client.py` —— `SnapshotBinanceClient`（回放真实快照）+ `McpBinanceClient`（直连 CIMD OAuth）。见《我们遇到的平台限制》。 |
-| **x402** —— agent 对 agent 支付（`exact` scheme，Base 上的 USDC） | `alphabazaar/x402.py`、`sellers/common.py` |
+| **x402** —— agent 对 agent 支付（v2 `exact` scheme，EIP-3009 gasless USDC）。`mock`=HMAC 模拟；`live`=EIP-712 签名 + facilitator 链上结算 | `alphabazaar/x402.py`、`sellers/common.py` |
 | **Agentic 子账户隔离** —— 无提现范围，划转不出账户 | 交易仅限 Convert + 人工批准 |
 | **公开行情** —— tickers / 资金费率 / K 线（无需鉴权） | `alphabazaar/marketdata.py`，卖方 agent 使用 |
 
@@ -138,11 +138,11 @@ is not currently supported. Please connect using a supported Agent to continue."
   `convert_*` 工具铺出并再平衡（order ID 在文件 `provenance` 里，全部 `orderStatus: SUCCESS`），
   包括分析师在 demo 里提议的那笔削减。
 
-**2. x402 结算跑在 mock 模式。**
-402 → 付款 → 200 的握手、支付头、花费账本都是真的；只有链上 USDC 转账是模拟的
-（`X402_MODE=mock`——格式正确的假 tx hash，账本照样递减、每日上限照样生效）。这是公开演示
-的主动风控选择。切到真链只需一个钱包私钥 + 一个 facilitator——见下方《切换 x402 到真链》，
-三个 `# HOOK` 点已在 `x402.py` 标好。
+**2. x402 结算：演示走 mock，真链已实现。**
+`X402_MODE=live` 是完整的 x402 v2 实现 —— EIP-712 签名 + facilitator 链上结算，
+已对 `https://x402.org/facilitator` 验证通过（Base Sepolia 接受我们的 payload 和签名，
+只在余额检查处停下）。演示默认 `mock`（HMAC 模拟签名 + 假 tx hash，账本照样递减、
+每日上限照样生效）纯粹是公开演示的风控选择。跑真链见《真实 x402 结算》。
 
 ### 目录结构
 
@@ -164,15 +164,27 @@ sellers/
 run_demo.sh         一条命令的 demo
 ```
 
-### 切换 x402 到真链
+### 真实 x402 结算（Base Sepolia）
 
-`x402.py` 里三处真实结算点标了 `# HOOK`：
+`X402_MODE=live` 是完整实现，不是占位：`_build_payment_header` 用
+`X402_WALLET_PRIVATE_KEY` 对 EIP-3009 `TransferWithAuthorization` 做 EIP-712 签名，
+卖方把 x402 v2 payload 交给 facilitator（默认 `https://x402.org/facilitator`），
+facilitator 在链上提交无 gas 的 `transferWithAuthorization` 并返回 tx hash。
 
-1. `_build_payment_header` —— 用 `X402_WALLET_PRIVATE_KEY` 签一个 EIP-3009 `transferWithAuthorization`。
-2. `verify_payment_header` → `_facilitator_verify` —— `POST {facilitator}/verify`。
-3. `settle_payment` → `_facilitator_settle` —— `POST {facilitator}/settle`。
+跑一笔真实结算：
 
-设 `X402_MODE=live`、`X402_NETWORK=base`，并给 Agentic 钱包充值。
+```bash
+# 1. 给付款钱包充测试 USDC（无需 ETH，EIP-3009 是无 gas 的）：https://faucet.circle.com
+# 2. 启动一个 live 模式的卖方：
+X402_MODE=live SELLER_FUNDING_PAY_TO=0x... \
+  python -m uvicorn sellers.funding_scanner:app --port 8801 &
+# 3. 打一笔：
+X402_MODE=live X402_WALLET_PRIVATE_KEY=0x... \
+  python -m alphabazaar.cli x402-selftest
+# → 打印 https://sepolia.basescan.org/tx/0x... 
+```
+
+`base` 主网：把 `X402_NETWORK=base`、换一个支持主网的 facilitator、钱包放真 USDC。
 
 ---
 
@@ -294,7 +306,7 @@ pytest -q      # offline; no credentials needed
 | Agent OS capability | Where |
 |---|---|
 | **MCP** — Agentic sub-account balances, 24h tickers, perp funding, Convert | `alphabazaar/mcp_client.py` — `SnapshotBinanceClient` (replay a real capture) + `McpBinanceClient` (direct CIMD OAuth). See *Platform limits we hit*. |
-| **x402** — agent-to-agent payment (`exact` scheme, USDC on Base) | `alphabazaar/x402.py`, `sellers/common.py` |
+| **x402** — agent-to-agent payment (v2 `exact` scheme, gasless EIP-3009 USDC). `mock` = HMAC sim; `live` = EIP-712 signature + facilitator on-chain settlement | `alphabazaar/x402.py`, `sellers/common.py` |
 | **Agentic sub-account isolation** — no withdrawal scope, transfers stay in-account | trades are Convert-only + human-approved |
 | **Public market data** — tickers / funding / klines (no auth) | `alphabazaar/marketdata.py`, used by the seller agents |
 
@@ -321,13 +333,13 @@ rather than a permanent policy.
   (order IDs in the file's `provenance`, all `orderStatus: SUCCESS`), including
   the exact trim the analyst proposed in the demo.
 
-**2. x402 settlement runs in mock mode.**
-The 402 → pay → 200 handshake, the payment headers, and the spend ledger are all
-real; only the on-chain USDC transfer is simulated (`X402_MODE=mock` — a
-well-formed fake tx hash, ledger still decrements and the daily cap still bites).
-This is a deliberate risk choice for a public demo. Going live is a wallet key
-plus a facilitator — see *Going live with x402* below; the three `# HOOK` points
-are marked in `x402.py`.
+**2. x402 settlement: the demo runs mock, live is implemented.**
+`X402_MODE=live` is a complete x402 v2 implementation — EIP-712 signature +
+facilitator on-chain settlement — verified against `https://x402.org/facilitator`
+(Base Sepolia accepts our payload and signature and stops only at the balance
+check). The demo defaults to `mock` (HMAC signature + fake tx hash; the ledger
+still decrements and the daily cap still bites) purely as a public-demo risk
+choice. Run it for real: *Real x402 settlement* below.
 
 ### Layout
 
@@ -349,15 +361,30 @@ sellers/
 run_demo.sh         one-command demo
 ```
 
-### Going live with x402
+### Real x402 settlement (Base Sepolia)
 
-`x402.py` has `# HOOK` markers for the three real-settlement points:
+`X402_MODE=live` is a full implementation, not a stub: `_build_payment_header`
+EIP-712-signs an EIP-3009 `TransferWithAuthorization` with
+`X402_WALLET_PRIVATE_KEY`; the seller hands the x402 v2 payload to a facilitator
+(default `https://x402.org/facilitator`) which submits the gasless
+`transferWithAuthorization` on-chain and returns the tx hash.
 
-1. `_build_payment_header` — sign an EIP-3009 `transferWithAuthorization` with `X402_WALLET_PRIVATE_KEY`.
-2. `verify_payment_header` → `_facilitator_verify` — `POST {facilitator}/verify`.
-3. `settle_payment` → `_facilitator_settle` — `POST {facilitator}/settle`.
+Run one real settlement:
 
-Set `X402_MODE=live`, `X402_NETWORK=base`, and fund the Agentic wallet.
+```bash
+# 1. fund the payer wallet with test USDC (no ETH needed — EIP-3009 is gasless):
+#    https://faucet.circle.com  (Base Sepolia)
+# 2. start a seller in live mode:
+X402_MODE=live SELLER_FUNDING_PAY_TO=0x... \
+  python -m uvicorn sellers.funding_scanner:app --port 8801 &
+# 3. pay it:
+X402_MODE=live X402_WALLET_PRIVATE_KEY=0x... \
+  python -m alphabazaar.cli x402-selftest
+# → prints https://sepolia.basescan.org/tx/0x...
+```
+
+For `base` mainnet: set `X402_NETWORK=base`, point at a mainnet-capable
+facilitator, and fund the wallet with real USDC.
 
 ---
 

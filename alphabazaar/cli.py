@@ -147,6 +147,44 @@ def cmd_mcp_probe(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_x402_selftest(args: argparse.Namespace) -> int:
+    """One real x402 payment against a running seller — proves live settlement."""
+    from . import x402
+    from .x402 import Ledger, PaymentError, paid_get
+
+    url = args.url or settings.seller_funding_url
+    console.print(
+        f"[dim]x402 mode=[/dim][bold]{settings.x402_mode}[/bold][dim]  network={settings.x402_network}"
+        f"  facilitator={settings.x402_facilitator_url}[/dim]"
+    )
+    if settings.x402_mode == "live":
+        acct = x402._local_account()
+        if acct is None:
+            console.print("[red]X402_MODE=live needs X402_WALLET_PRIVATE_KEY[/red]")
+            return 1
+        console.print(f"[dim]payer wallet:[/dim] {acct.address}")
+
+    ledger = Ledger(balance_usdc=100.0)
+    try:
+        body, payment = paid_get(url, "/analysis", ledger)
+    except PaymentError as e:
+        console.print(f"[red]payment failed:[/red] {e}")
+        return 1
+    except Exception as e:
+        console.print(f"[red]{type(e).__name__}:[/red] {e}")
+        return 1
+
+    console.print(
+        f"[green]✔ paid ${payment.amount_usdc:.2f} to {payment.seller}[/green]  "
+        f"[dim]({payment.mode})[/dim]"
+    )
+    console.print(f"[dim]tx:[/dim] {payment.tx_hash}")
+    if payment.mode == "live" and settings.x402_network == "base-sepolia" and payment.tx_hash.startswith("0x"):
+        console.print(f"[dim]https://sepolia.basescan.org/tx/{payment.tx_hash}[/dim]")
+    console.print(f"[dim]signals received: {len(body.get('signals', []))}[/dim]")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="alphabazaar", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -161,6 +199,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("mcp-probe", help="print the MCP server's advertised tools").set_defaults(
         func=cmd_mcp_probe
     )
+    p_x = sub.add_parser("x402-selftest", help="do one real x402 payment against a running seller")
+    p_x.add_argument("--url", help="seller base URL (default: SELLER_FUNDING_URL)")
+    p_x.set_defaults(func=cmd_x402_selftest)
 
     args = parser.parse_args(argv)
     try:
