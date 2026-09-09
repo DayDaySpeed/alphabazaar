@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import math
 import time
+from datetime import datetime, timezone
 
 import httpx
 
@@ -30,17 +31,51 @@ UNIVERSE = {
 _CACHE: dict[str, tuple[float, object]] = {}
 _TTL = 90.0
 
+# process-wide record of where the last read of each key actually came from, so a
+# seller (and, downstream, the report) can state whether a number is live Binance
+# data or a synthetic fallback. Never silently mixed.
+_PROVENANCE: dict[str, dict] = {}
 
-def _cached(key: str, fn, fallback):
+
+def _iso(ts: float | None = None) -> str:
+    return datetime.fromtimestamp(ts or time.time(), timezone.utc).isoformat(timespec="seconds")
+
+
+def _cached(key: str, fn, fallback, *, kind: str = "market"):
     hit = _CACHE.get(key)
     if hit and time.time() - hit[0] < _TTL:
         return hit[1]
+    fetched_at = time.time()
     try:
         val = fn()
-    except Exception:
+        _PROVENANCE[key] = {
+            "kind": kind, "source": "binance-public-rest",
+            "fetched_at": _iso(fetched_at), "degraded": False, "reason": "",
+        }
+    except Exception as e:
         val = fallback() if callable(fallback) else fallback
+        _PROVENANCE[key] = {
+            "kind": kind, "source": "synthetic-fallback",
+            "fetched_at": _iso(fetched_at), "degraded": True,
+            "reason": f"{type(e).__name__}: {e}"[:200],
+        }
     _CACHE[key] = (time.time(), val)
     return val
+
+
+def data_provenance() -> dict:
+    """Snapshot of where the market-data reads in this process came from."""
+    series = dict(_PROVENANCE)
+    return {
+        "as_of": _iso(),
+        "degraded": any(p["degraded"] for p in series.values()),
+        "sources": sorted({p["source"] for p in series.values()}) or ["none"],
+        "series": series,
+    }
+
+
+def reset_provenance() -> None:
+    _PROVENANCE.clear()
 
 _SYNTH_ANCHOR = {"BTC": 64000.0, "ETH": 3100.0, "BNB": 580.0, "SOL": 145.0}
 
@@ -75,7 +110,7 @@ def _spot_ticker_board() -> dict[str, dict]:
 
 
 def get_spot_tickers(assets: list[str]) -> dict[str, dict]:
-    rows = _cached("spot_board", _spot_ticker_board, dict)
+    rows = _cached("spot_board", _spot_ticker_board, dict, kind="spot-ticker")
     out: dict[str, dict] = {}
     for a in assets:
         sym = UNIVERSE.get(a, (f"{a}USDT",))[0]
@@ -100,7 +135,7 @@ def _premium_index_board() -> dict[str, dict]:
 
 def get_funding_rates(assets: list[str]) -> dict[str, float]:
     """Latest perp funding rate as a percent per 8h window (e.g. 0.01 == 0.01%)."""
-    rows = _cached("premium_index", _premium_index_board, dict)
+    rows = _cached("premium_index", _premium_index_board, dict, kind="funding")
     out = {}
     for a in assets:
         sym = UNIVERSE.get(a, (f"{a}USDT", f"{a}USDT"))[1]
@@ -135,6 +170,7 @@ def get_klines(asset: str, interval: str = "1h", limit: int = 168) -> list[float
         f"klines:{sym}:{interval}:{limit}",
         lambda: _fetch_klines(sym, interval, limit),
         lambda: _synth_klines(asset, limit),
+        kind="klines",
     )
 
 
