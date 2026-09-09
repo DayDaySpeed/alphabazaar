@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from alphabazaar import marketdata
 from alphabazaar.models import Signal
 
-from .common import charge, with_settlement
+from .common import analysis_response, charge
 
 PRICE_USDC = 1.50
 # In live mode set SELLER_FUNDING_PAY_TO to a real address the facilitator can pay.
@@ -96,10 +96,12 @@ def analysis(request: Request):
     if gate.response is not None:
         return gate.response
 
-    body = {
-        "seller": "funding-scanner",
-        "methodology": "Latest perp funding (Binance fapi premiumIndex), annualised over 3x365 windows; "
+    return analysis_response(
+        seller="funding-scanner",
+        methodology="Latest perp funding (Binance fapi premiumIndex), annualised over 3x365 windows; "
         "flags |APR| >= 15% as carry opportunity / squeeze risk.",
-        "signals": [s.model_dump() for s in _scan()],
-    }
-    return with_settlement(body, gate.settlement)
+        signals=_scan(),
+        settlement=gate.settlement,
+        horizon="funding window (~8h)",
+        valid_for_hours=8,
+    )

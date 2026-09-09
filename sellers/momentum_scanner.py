@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request
 from alphabazaar import marketdata
 from alphabazaar.models import Signal
 
-from .common import charge, with_settlement
+from .common import analysis_response, charge
 
 PRICE_USDC = 1.25
 PAY_TO = os.environ.get("SELLER_MOMENTUM_PAY_TO", "0x3Ec0M0mentum000000000000000000000000A1pha")
@@ -124,10 +124,12 @@ def analysis(request: Request):
     if gate.response is not None:
         return gate.response
 
-    body = {
-        "seller": "momentum-scanner",
-        "methodology": "30 daily closes (Binance klines); 7d/30d returns, 7d vs 30d SMA stack, "
+    return analysis_response(
+        seller="momentum-scanner",
+        methodology="30 daily closes (Binance klines); 7d/30d returns, 7d vs 30d SMA stack, "
         "distance from the 30d high. Flags stacked-MA trends and extended-then-rolling-over setups.",
-        "signals": [s.model_dump() for s in _scan()],
-    }
-    return with_settlement(body, gate.settlement)
+        signals=_scan(),
+        settlement=gate.settlement,
+        horizon="swing (7–30d)",
+        valid_for_hours=48,
+    )

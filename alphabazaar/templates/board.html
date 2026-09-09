@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AlphaBazaar · Workbench</title>
+<style>
+  :root{
+    --bg:#0b0e11; --panel:#161a1e; --panel-2:#1e2329; --line:#2b3139;
+    --text:#eaecef; --muted:#848e9c; --yellow:#f0b90b; --green:#2ebd85; --red:#f6465d; --blue:#5b8def;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:32px 20px 64px}
+  header{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;
+    border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:24px}
+  h1{font-size:20px;margin:0;letter-spacing:.3px} h1 b{color:var(--yellow)}
+  .sub{color:var(--muted);font-size:12px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);
+    margin:32px 0 12px;font-weight:600}
+  .grid{display:grid;gap:12px}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .kpi .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
+  .kpi .value{font-size:20px;font-weight:600;margin-top:4px}
+  .scroll{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:640px}
+  th,td{text-align:right;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  .pos{color:var(--green)} .neg{color:var(--red)} .mut{color:var(--muted)}
+  a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+  code{background:var(--panel-2);padding:1px 5px;border-radius:4px;font-size:12px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  .banner{border-radius:10px;padding:12px 16px;margin:0 0 8px;border:1px solid var(--line);background:var(--panel)}
+  .banner.bad{border-color:rgba(246,70,93,.5);background:rgba(246,70,93,.08)}
+  .banner.ok{border-color:rgba(46,189,133,.4);background:rgba(46,189,133,.07)}
+  .bar{height:6px;border-radius:3px;background:var(--panel-2);overflow:hidden;display:inline-block;width:90px;vertical-align:middle}
+  .bar > i{display:block;height:100%;background:var(--green)}
+  footer{margin-top:40px;color:var(--muted);font-size:11px;border-top:1px solid var(--line);padding-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1><b>AlphaBazaar</b> · Workbench</h1>
+      <div class="sub">read-only · generated {{ generated_at }} UTC</div>
+    </div>
+    <div class="sub">ledger: <code>{{ ledger_path }}</code>
+      {% if not ledger_present %}<span class="neg">(not found — payment history unavailable)</span>{% endif %}</div>
+  </header>
+
+  <div class="grid kpis">
+    <div class="card kpi"><div class="label">Runs</div><div class="value">{{ totals.runs }}</div></div>
+    <div class="card kpi"><div class="label">Payments</div><div class="value">{{ totals.payments }}</div></div>
+    <div class="card kpi"><div class="label">Spend (non-failed)</div><div class="value">${{ '%.2f'|format(totals.spend_usdc) }}</div></div>
+    <div class="card kpi"><div class="label">Unresolved</div>
+      <div class="value {{ 'neg' if totals.unresolved else '' }}">{{ totals.unresolved }}</div></div>
+  </div>
+
+  {% if unresolved %}
+  <h2>⚠ Unresolved payments — needs attention</h2>
+  <div class="banner bad">
+    These payments took budget but their settlement or delivery is not confirmed.
+    They are <b>not</b> re-paid automatically. Reclaim with the original run id:
+  </div>
+  <div class="card scroll">
+    <table>
+      <thead><tr><th>Run</th><th>Seller</th><th>Amount</th><th>Pay status</th><th>Delivery</th><th>Reclaim</th></tr></thead>
+      <tbody>
+      {% for p in unresolved %}
+        <tr>
+          <td class="mono">{{ p.run_id }}</td>
+          <td>{{ p.seller_id }}</td>
+          <td>${{ p.amount_atomic|usdc }}</td>
+          <td class="neg">{{ p.pay_status }}</td>
+          <td class="{{ 'pos' if p.delivery_status=='delivered' else 'neg' }}">{{ p.delivery_status }}</td>
+          <td class="mono">python -m alphabazaar.cli run --resume-run {{ p.run_id }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <h2>Runs</h2>
+  <div class="card scroll">
+    <table>
+      <thead><tr>
+        <th>When (UTC)</th><th>Run</th><th>Modes</th><th>Spend</th><th>Budget left</th>
+        <th>Sellers</th><th>Analysis</th><th>Trade gate</th><th>Report</th>
+      </tr></thead>
+      <tbody>
+      {% for r in runs %}
+        <tr>
+          <td class="mut">{{ r.generated_at }}</td>
+          <td class="mono">{{ r.run_id }}</td>
+          <td class="mut">{{ r.binance_mode }} / {{ r.x402_mode }}</td>
+          <td>${{ '%.2f'|format(r.spend_usdc) }}</td>
+          <td class="mut">${{ '%.2f'|format(r.budget_remaining_usdc) }}/{{ '%.0f'|format(r.budget_usdc) }}</td>
+          <td>{{ r.sellers_delivered }}/{{ r.sellers_attempted }}</td>
+          <td class="{{ 'pos' if r.analysis_complete else 'neg' }}">{{ 'complete' if r.analysis_complete else 'INCOMPLETE' }}</td>
+          <td class="{{ 'pos' if r.trade_execution_allowed else 'neg' }}">{{ 'allowed' if r.trade_execution_allowed else 'blocked' }}</td>
+          <td>{% if r._html %}<a href="runs/{{ r._html }}">html</a> · {% endif %}<a href="runs/{{ r._json }}">json</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="9" class="mut">No runs found under reports/runs/.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if sellers %}
+  <h2>Seller reputation <span class="sub">(from the payment ledger)</span></h2>
+  <div class="card scroll">
+    <table>
+      <thead><tr>
+        <th>Seller</th><th>Score</th><th>Calls</th><th>Fill</th><th>Delivery</th>
+        <th>Unknown</th><th>Degraded</th><th>Avg $</th><th>Signal hit-rate</th>
+      </tr></thead>
+      <tbody>
+      {% for s in sellers %}
+      {% set st = s.stats %}
+        <tr>
+          <td><b>{{ s.id }}</b> <span class="mut">{{ s.name }}</span></td>
+          <td>
+            <span class="bar"><i style="width:{{ (st.score*100)|round|int }}%"></i></span>
+            {{ '%.2f'|format(st.score) }}{% if not st.confident %} <span class="mut">?</span>{% endif %}
+          </td>
+          <td>{{ st.calls }}</td>
+          <td>{{ '%.0f'|format(st.fill_rate*100) }}%</td>
+          <td class="{{ 'pos' if st.delivery_rate>=0.99 else ('neg' if st.delivery_rate<0.8 else '') }}">{{ '%.0f'|format(st.delivery_rate*100) }}%</td>
+          <td class="{{ 'neg' if st.unknown_rate>0 else 'mut' }}">{{ '%.0f'|format(st.unknown_rate*100) }}%</td>
+          <td class="{{ 'neg' if st.degraded_rate>0 else 'mut' }}">{{ '%.0f'|format(st.degraded_rate*100) }}%</td>
+          <td class="mut">${{ '%.2f'|format(st.avg_price_usdc) }}</td>
+          <td class="mut">{% if st.hit_rate is not none %}{{ '%.0f'|format(st.hit_rate*100) }}% <span class="mut">({{ st.signals_scored }})</span>{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="sub">Score = operational base [0.40·delivery + 0.30·(1−unknown) + 0.20·fill + 0.10·(1−degraded)], shrunk toward 0.60 until ≥3 calls (<code>?</code>), then blended 85/15 with the directional hit-rate once signals are scored. Hit-rate <code>(n)</code> = decisive+neutral signals graded; run <code>alphabazaar score-signals</code> once signals mature past their <code>valid_until</code>.</div>
+  {% endif %}
+
+  {% if payments %}
+  <h2>Payment ledger <span class="sub">({{ payments|length }} rows, newest first)</span></h2>
+  <div class="card scroll">
+    <table>
+      <thead><tr>
+        <th>Created (UTC)</th><th>Run</th><th>Seller</th><th>Amount</th><th>Pay</th><th>Delivery</th>
+        <th>Signals</th><th>Data</th><th>tx</th>
+      </tr></thead>
+      <tbody>
+      {% for p in payments %}
+        <tr>
+          <td class="mut">{{ p.created_at }}</td>
+          <td class="mono">{{ p.run_id }}</td>
+          <td>{{ p.seller_id }}</td>
+          <td>${{ p.amount_atomic|usdc }}</td>
+          <td class="{{ 'pos' if p.pay_status=='settled' else ('neg' if p.pay_status in ('failed','settlement_unknown') else 'mut') }}">{{ p.pay_status }}</td>
+          <td class="{{ 'pos' if p.delivery_status=='delivered' else 'mut' }}">{{ p.delivery_status }}</td>
+          <td class="mut">{{ p.signals_count }}</td>
+          <td class="{{ 'neg' if p.data_degraded else 'mut' }}">{{ 'degraded' if p.data_degraded else 'live' }}</td>
+          <td class="mono mut">{{ p.tx_hash|short(14) if p.tx_hash else '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <footer>
+    AlphaBazaar workbench — read-only view over reports/runs/*.json + var/ledger.db.
+    Regenerate with <code>python -m alphabazaar.cli board</code>. Not financial advice.
+  </footer>
+</div>
+</body>
+</html>

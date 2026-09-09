@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from alphabazaar import marketdata
 from alphabazaar.models import Signal
 
-from .common import charge, with_settlement
+from .common import analysis_response, charge
 
 PRICE_USDC = 1.75
 # In live mode set SELLER_RISK_PAY_TO to a real address the facilitator can pay.
@@ -130,10 +130,12 @@ def analysis(request: Request):
         return gate.response
 
     holdings = _parse_holdings(request.query_params.get("holdings"))
-    body = {
-        "seller": "risk-analyzer",
-        "methodology": "7d hourly closes (Binance klines); annualised realized vol, Pearson correlation on "
+    return analysis_response(
+        seller="risk-analyzer",
+        methodology="7d hourly closes (Binance klines); annualised realized vol, Pearson correlation on "
         "hourly returns, concentration vs equal-weight, regime from cross-asset average vol.",
-        "signals": [s.model_dump() for s in _analyze(holdings)],
-    }
-    return with_settlement(body, gate.settlement)
+        signals=_analyze(holdings),
+        settlement=gate.settlement,
+        horizon="1–2 sessions",
+        valid_for_hours=24,
+    )

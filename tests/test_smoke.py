@@ -5,13 +5,14 @@ from __future__ import annotations
 import base64
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from alphabazaar import brain, x402
 from alphabazaar.binance_client import ASSETS, MockBinanceClient
+from alphabazaar.ledger import BudgetError, BudgetLedger
 from alphabazaar.models import Payment, Report, Signal
 from alphabazaar.report import render_html
-from alphabazaar.x402 import Ledger
 from sellers.funding_scanner import app as funding_app
 from sellers.risk_analyzer import app as risk_app
 
@@ -52,15 +53,14 @@ def test_x402_rejects_tampered_payment():
     assert client.get("/analysis", headers={"X-PAYMENT": bad}).status_code == 402
 
 
-def test_ledger_enforces_cap_and_balance():
-    led = Ledger(balance_usdc=3.0, daily_cap_usdc=20.0)
-    ok, _ = led.can_afford(1.5)
-    assert ok
-    ok, reason = led.can_afford(5.0)
-    assert not ok and "balance" in reason
-    led2 = Ledger(balance_usdc=100.0, daily_cap_usdc=2.0)
-    ok, reason = led2.can_afford(3.0)
-    assert not ok and "cap" in reason
+def test_ledger_enforces_daily_cap():
+    led = BudgetLedger(payment_identity="0xP", network="base-sepolia",
+                       daily_cap_usdc=2.0, db_path=":memory:")
+    led.reserve(request_id="a", run_id="r", seller_id="s1", amount_usdc=1.5,
+                quote_max_usdc=1.5, pay_to="0xS")
+    with pytest.raises(BudgetError, match="daily cap"):
+        led.reserve(request_id="b", run_id="r", seller_id="s2", amount_usdc=1.0,
+                    quote_max_usdc=1.0, pay_to="0xS")
 
 
 def test_planner_rules_pick_sellers():
