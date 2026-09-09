@@ -28,15 +28,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import secrets
+import socket
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-
-
-def _utc_day() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+from urllib.parse import urlparse
 
 import httpx
 
@@ -86,34 +84,9 @@ def from_atomic(atomic: str | int) -> float:
     return int(atomic) / 10**USDC_DECIMALS
 
 
-# --------------------------------------------------------------------------- ledger
-@dataclass
-class Ledger:
-    """Mirrors spendable USDC in the Binance Agentic sub-account + the x402 daily cap."""
-
-    balance_usdc: float
-    daily_cap_usdc: float = field(default_factory=lambda: settings.x402_daily_cap_usdc)
-    payments: list[Payment] = field(default_factory=list)
-    _day: str = field(default_factory=_utc_day)  # UTC — matches Payment.at
-
-    @property
-    def spent_today(self) -> float:
-        return round(sum(p.amount_usdc for p in self.payments if p.at[:10] == self._day), 6)
-
-    @property
-    def cap_remaining(self) -> float:
-        return round(self.daily_cap_usdc - self.spent_today, 6)
-
-    def can_afford(self, amount_usdc: float) -> tuple[bool, str]:
-        if amount_usdc > self.balance_usdc:
-            return False, f"insufficient sub-account balance ({self.balance_usdc:.2f} USDC)"
-        if amount_usdc > self.cap_remaining:
-            return False, f"x402 daily cap reached ({self.cap_remaining:.2f} USDC left of {self.daily_cap_usdc:.0f})"
-        return True, ""
-
-    def record(self, payment: Payment) -> None:
-        self.balance_usdc = round(self.balance_usdc - payment.amount_usdc, 6)
-        self.payments.append(payment)
+# The budget + payment ledger now lives in ``alphabazaar.ledger.BudgetLedger``
+# (persistent SQLite, per payer-identity / network / UTC-day). ``paid_get`` below
+# takes one.
 
 
 # --------------------------------------------------------------------- server side
@@ -236,10 +209,17 @@ def verify_payment_header(header_value: str, reqs: PaymentRequirements) -> tuple
     try:
         if int(auth["value"]) < int(reqs.max_amount_required):
             return False, "authorization value below maxAmountRequired", payload
+        valid_after = int(auth["validAfter"])
+        valid_before = int(auth["validBefore"])
     except (KeyError, TypeError, ValueError):
         return False, "malformed authorization", payload
     if auth.get("to", "").lower() != reqs.pay_to.lower():
         return False, "authorization payTo mismatch", payload
+    now = int(time.time())
+    if now < valid_after:
+        return False, "authorization not yet valid (validAfter in the future)", payload
+    if now >= valid_before:
+        return False, "authorization expired (validBefore in the past)", payload
 
     if settings.x402_mode == "live":
         return _facilitator_verify(payload, reqs)
@@ -303,6 +283,53 @@ def _facilitator_settle(payload: dict, reqs: PaymentRequirements) -> dict:  # pr
 # --------------------------------------------------------------------- client side
 class PaymentError(RuntimeError):
     pass
+
+
+# always refused — cloud metadata / link-local / unroutable
+_BLOCKED_NETS = tuple(
+    ipaddress.ip_network(n) for n in (
+        "169.254.0.0/16", "fe80::/10",   # link-local (incl. 169.254.169.254 metadata)
+        "0.0.0.0/8", "::/128",           # unspecified / "this host"
+        "224.0.0.0/4", "ff00::/8",       # multicast
+    )
+)
+# refused unless X402_ALLOW_PRIVATE_SELLERS=1 — classic LAN / internal ranges
+_PRIVATE_NETS = tuple(
+    ipaddress.ip_network(n) for n in (
+        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7",
+    )
+)
+# NOT blocked: 198.18.0.0/15 and 100.64.0.0/10 — commonly handed back by VPN /
+# tunneling resolvers (Cloudflare WARP etc.) as routing sentinels for otherwise
+# public hosts; blocking them breaks legitimate use.
+
+
+def _guard_seller_url(url: str) -> None:
+    """Refuse to send a payment to a metadata / link-local / (by default) LAN host.
+
+    The seller list is operator config, but a typo or a compromised registry
+    entry shouldn't let the buyer hit ``169.254.169.254`` or an internal service.
+    Loopback and everything not in the block/private sets is allowed.
+    """
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host:
+        raise PaymentError(f"seller URL has no host: {url!r}")
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or 80, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as e:
+        raise PaymentError(f"cannot resolve seller host {host!r}: {e}") from e
+    for *_, sockaddr in infos:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if ip.is_loopback:
+            continue
+        if any(ip in n for n in _BLOCKED_NETS):
+            raise PaymentError(f"refusing to pay seller at blocked address {ip} ({host})")
+        if any(ip in n for n in _PRIVATE_NETS) and not settings.x402_allow_private_sellers:
+            raise PaymentError(
+                f"refusing to pay seller at private/LAN address {ip} ({host}); "
+                "set X402_ALLOW_PRIVATE_SELLERS=1 if this is intentional"
+            )
 
 
 def _local_account():
@@ -370,10 +397,165 @@ def _build_payment_header(reqs_dict: dict) -> str:
     return base64.b64encode(json.dumps(payload).encode()).decode()
 
 
-def paid_get(base_url: str, path: str, ledger: Ledger, *, params: dict | None = None) -> tuple[dict, Payment]:
-    """Do the full 402 handshake against `base_url + path`. Returns (json_body, Payment)."""
+def validate_quote(reqs_dict: dict, *, price_ceiling_usdc: float) -> tuple[float, list[str]]:
+    """Deterministic pre-payment checks on a seller's 402 challenge.
+
+    Returns (price_usdc, errors). Never signs anything; the caller refuses to pay
+    if ``errors`` is non-empty.
+    """
+    errors: list[str] = []
+    net = settings.x402_network
+    try:
+        price = from_atomic(reqs_dict["maxAmountRequired"])
+    except (KeyError, TypeError, ValueError):
+        return 0.0, ["402 challenge has no valid maxAmountRequired"]
+
+    if reqs_dict.get("scheme") != "exact":
+        errors.append(f"unexpected scheme {reqs_dict.get('scheme')!r} (want 'exact')")
+    challenge_net = reqs_dict.get("network")
+    if challenge_net not in (net, CAIP2.get(net)):
+        errors.append(f"network mismatch: challenge {challenge_net!r} != configured {net!r}")
+    want_asset = USDC_ADDRESS.get(net, "").lower()
+    got_asset = str(reqs_dict.get("asset", "")).lower()
+    if want_asset and got_asset and got_asset != want_asset:
+        errors.append(f"asset mismatch: challenge {got_asset} != USDC {want_asset} on {net}")
+    if not reqs_dict.get("payTo"):
+        errors.append("402 challenge has no payTo address")
+    if price <= 0:
+        errors.append(f"non-positive price {price}")
+    if price > price_ceiling_usdc:
+        errors.append(f"price {price:.2f} USDC exceeds ceiling {price_ceiling_usdc:.2f}")
+    return price, errors
+
+
+_ALREADY_SETTLED_HINTS = (
+    "nonce", "already used", "already been used", "authorization is used",
+    "authorization already", "replay", "already settled", "already redeemed",
+    "duplicate authorization",
+)
+
+
+def _looks_already_settled(err_text: str) -> bool:
+    low = (err_text or "").lower()
+    return any(h in low for h in _ALREADY_SETTLED_HINTS)
+
+
+def _decode_settlement(resp) -> dict:
+    resp_header = resp.headers.get("x-payment-response")
+    if not resp_header:
+        return {}
+    try:
+        return json.loads(base64.b64decode(resp_header))
+    except Exception:
+        return {}
+
+
+def _mk_payment(reqs_dict: dict, url: str, price: float, *, settlement: dict,
+                request_id: str, pay_status: str, delivery_status: str, nonce: str) -> Payment:
+    return Payment(
+        seller=reqs_dict.get("description", url),
+        resource=reqs_dict.get("resource", url),
+        amount_usdc=price,
+        network=reqs_dict.get("network", settings.x402_network),
+        tx_hash=settlement.get("txHash") or "",
+        settled=(pay_status == "settled"),
+        mode="live" if settings.x402_mode == "live" else "mock",
+        request_id=request_id,
+        pay_status=pay_status,
+        delivery_status=delivery_status,
+        authorization=nonce,
+    )
+
+
+def paid_get(
+    base_url: str,
+    path: str,
+    budget,
+    *,
+    run_id: str,
+    seller_id: str,
+    params: dict | None = None,
+    price_ceiling_usdc: float | None = None,
+) -> tuple[dict, Payment]:
+    """Full 402 handshake with a persistent budget + idempotent reclaim.
+
+    ``budget`` is an ``alphabazaar.ledger.BudgetLedger``. The call is keyed by
+    ``request_id = sha256(run_id | seller_id)``:
+
+    * a fresh call reserves budget, signs one authorization, pays, settles;
+    * a repeat call (same run_id, e.g. ``--resume-run``) never signs again — it
+      replays the stored authorization to reclaim the body, or reports the prior
+      payment as unresolved.
+    """
+    from .ledger import BudgetError
+
+    ceiling = price_ceiling_usdc if price_ceiling_usdc is not None else settings.x402_max_price_usdc
     url = base_url.rstrip("/") + path
-    # sellers may fetch live public market data before answering; be generous.
+    _guard_seller_url(url)
+    request_id = budget.request_id(run_id, seller_id)
+    prior = budget.get(request_id)
+
+    # ---- reclaim path: a prior attempt already booked this request ----------
+    _reclaimable = prior and (
+        prior["pay_status"] in ("settled", "settlement_unknown")
+        or (prior["pay_status"] == "reserved" and prior["auth_header"])
+    )
+    if _reclaimable:
+        if not prior["auth_header"]:
+            raise PaymentError(
+                f"{seller_id}: prior payment {request_id[:10]}… is {prior['pay_status']} "
+                "with no stored authorization — not retrying (start a new run to re-pay)"
+            )
+        with httpx.Client(timeout=90.0) as c:
+            try:
+                again = c.get(url, params=params, headers={"X-PAYMENT": prior["auth_header"]})
+            except Exception as e:
+                raise PaymentError(
+                    f"{seller_id}: reclaim of unresolved payment {request_id[:10]}… failed: {e}"
+                ) from e
+        reqs_like = {"description": prior["seller_id"], "network": prior["network"], "resource": url}
+        amt = round(int(prior["amount_atomic"]) / 1_000_000, 6)
+        if again.status_code == 200:
+            settlement = _decode_settlement(again)
+            body = again.json()
+            n = len(body.get("signals", []))
+            budget.mark_settled(request_id, tx_hash=settlement.get("txHash", prior["tx_hash"]),
+                                note="reclaimed")
+            budget.mark_delivered(request_id, signals_count=n)
+            return body, _mk_payment(
+                reqs_like, url, amt, settlement=settlement, request_id=request_id,
+                pay_status="settled", delivery_status="delivered", nonce=prior["auth_nonce"],
+            )
+
+        # A 402 whose error says the authorization was already consumed is strong
+        # evidence the ORIGINAL payment settled on-chain (EIP-3009 nonces are
+        # single-use). Record it as settled — the money moved — but flag that the
+        # analysis body could not be recovered from the seller.
+        err_text = ""
+        try:
+            err_text = str(again.json().get("error", ""))
+        except Exception:
+            err_text = again.text[:200]
+        if again.status_code == 402 and _looks_already_settled(err_text):
+            budget.mark_settled(request_id, tx_hash=prior["tx_hash"],
+                                note=f"nonce already consumed on reclaim → original payment settled: {err_text}")
+            budget.mark_delivery_failed(request_id, reason="reclaim rejected (nonce used); seller did not return the analysis")
+            raise PaymentError(
+                f"{seller_id}: prior payment {request_id[:10]}… is confirmed SETTLED "
+                f"(authorization already consumed), but the analysis body is not recoverable "
+                f"from the seller — treat as paid, not delivered ({err_text})"
+            )
+        raise PaymentError(
+            f"{seller_id}: prior payment {request_id[:10]}… still unresolved "
+            f"(reclaim got HTTP {again.status_code}: {err_text}); budget stays reserved, not re-paying"
+        )
+    if prior and prior["pay_status"] == "failed":
+        raise PaymentError(
+            f"{seller_id}: a prior attempt failed pre-settlement ({prior['settle_note']}); "
+            "start a new run to retry"
+        )
+
+    # ---- fresh payment ----------------------------------------------------
     with httpx.Client(timeout=90.0) as c:
         first = c.get(url, params=params)
         if first.status_code != 402:
@@ -387,37 +569,70 @@ def paid_get(base_url: str, path: str, ledger: Ledger, *, params: dict | None = 
         except (KeyError, IndexError) as e:
             raise PaymentError(f"malformed 402 body from {url}: {body}") from e
 
-        price = from_atomic(reqs_dict["maxAmountRequired"])
-        ok, reason = ledger.can_afford(price)
-        if not ok:
-            raise PaymentError(f"cannot pay {price:.2f} USDC for {path}: {reason}")
+        price, qerrors = validate_quote(reqs_dict, price_ceiling_usdc=ceiling)
+        if qerrors:
+            raise PaymentError(f"{seller_id}: refusing to pay — quote failed validation: "
+                               + "; ".join(qerrors))
+
+        try:
+            res = budget.reserve(
+                request_id=request_id, run_id=run_id, seller_id=seller_id,
+                amount_usdc=price, quote_max_usdc=price,
+                pay_to=reqs_dict["payTo"], asset=str(reqs_dict.get("asset", "")),
+            )
+        except BudgetError as e:
+            raise PaymentError(f"{seller_id}: {e}") from e
 
         header = _build_payment_header(reqs_dict)
-        paid = c.get(url, params=params, headers={"X-PAYMENT": header})
+        try:
+            nonce = json.loads(base64.b64decode(header)).get("payload", {}).get(
+                "authorization", {}).get("nonce", "")
+        except Exception:
+            nonce = ""
+        budget.attach_authorization(request_id, auth_nonce=nonce, auth_header=header)
+
+        try:
+            paid = c.get(url, params=params, headers={"X-PAYMENT": header})
+        except Exception as e:
+            # we sent an authorization and never heard back — do NOT assume unpaid
+            budget.mark_settlement_unknown(request_id, note=f"no response after X-PAYMENT: {e}")
+            raise PaymentError(
+                f"{seller_id}: sent payment but got no response ({e}); marked settlement_unknown "
+                f"(resume with --resume-run {run_id})"
+            ) from e
+
         if paid.status_code == 402:
             try:
                 err = paid.json().get("error", "payment rejected")
             except Exception:
                 err = "payment rejected"
+            budget.mark_failed(request_id, reason=f"402 after payment: {err}")
             raise PaymentError(f"{url} rejected the payment: {err}")
-        paid.raise_for_status()
+        if paid.status_code != 200:
+            budget.mark_settlement_unknown(
+                request_id, note=f"HTTP {paid.status_code} after X-PAYMENT")
+            raise PaymentError(
+                f"{seller_id}: HTTP {paid.status_code} after payment; marked settlement_unknown "
+                f"(resume with --resume-run {run_id})"
+            )
 
-    settlement = {}
-    resp_header = paid.headers.get("x-payment-response")
-    if resp_header:
-        try:
-            settlement = json.loads(base64.b64decode(resp_header))
-        except Exception:
-            settlement = {}
+    settlement = _decode_settlement(paid)
+    settled_ok = bool(settlement.get("success", settings.x402_mode == "mock"))
+    result_body = paid.json()
+    n_signals = len(result_body.get("signals", []))
 
-    payment = Payment(
-        seller=reqs_dict.get("description", path),
-        resource=reqs_dict.get("resource", url),
-        amount_usdc=price,
-        network=reqs_dict["network"],
-        tx_hash=settlement.get("txHash", "0x" + "0" * 64),
-        settled=bool(settlement.get("success", settings.x402_mode == "mock")),
-        mode="live" if settings.x402_mode == "live" else "mock",
+    if settled_ok:
+        budget.mark_settled(request_id, tx_hash=settlement.get("txHash", ""))
+        budget.mark_delivered(request_id, signals_count=n_signals)
+        pay_status = "settled"
+    else:
+        # got the goods but the settlement receipt says otherwise — flag, don't lie
+        budget.mark_settlement_unknown(request_id, note="200 body but settlement.success falsey")
+        budget.mark_delivered(request_id, signals_count=n_signals)
+        pay_status = "settlement_unknown"
+
+    payment = _mk_payment(
+        reqs_dict, url, price, settlement=settlement, request_id=request_id,
+        pay_status=pay_status, delivery_status="delivered", nonce=nonce,
     )
-    ledger.record(payment)
-    return paid.json(), payment
+    return result_body, payment

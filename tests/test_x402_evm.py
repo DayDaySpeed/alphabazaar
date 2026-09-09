@@ -61,6 +61,59 @@ def test_underpay_is_rejected(monkeypatch):
     assert not ok and "below maxAmountRequired" in reason
 
 
+def test_expired_or_future_authorization_is_rejected(monkeypatch):
+    monkeypatch.setattr(x402.settings, "x402_mode", "mock")
+    reqs = _reqs()
+
+    def _signed(auth: dict) -> str:
+        payload = {
+            "x402Version": 1, "scheme": "exact", "network": "base-sepolia",
+            "payload": {"authorization": auth, "signature": x402._mock_signature(auth)},
+        }
+        return base64.b64encode(json.dumps(payload).encode()).decode()
+
+    base_auth = {
+        "from": x402.payer_address(), "to": reqs.pay_to, "value": reqs.max_amount_required,
+        "nonce": "0x" + "11" * 32,
+    }
+    expired = dict(base_auth, validAfter="0", validBefore="100")  # long past
+    ok, reason, _ = x402.verify_payment_header(_signed(expired), reqs)
+    assert not ok and "expired" in reason
+
+    future = dict(base_auth, validAfter="99999999999", validBefore="99999999999999")
+    ok, reason, _ = x402.verify_payment_header(_signed(future), reqs)
+    assert not ok and "not yet valid" in reason
+
+
+def _fake_dns(monkeypatch, ip):
+    monkeypatch.setattr(x402.socket, "getaddrinfo",
+                        lambda *a, **k: [(2, 1, 6, "", (ip, 80))])
+
+
+def test_seller_url_guard_blocks_link_local_allows_loopback(monkeypatch):
+    # loopback: always allowed
+    x402._guard_seller_url("http://127.0.0.1:8801/analysis")
+
+    # link-local / cloud metadata: always blocked
+    _fake_dns(monkeypatch, "169.254.169.254")
+    with pytest.raises(x402.PaymentError, match="blocked address"):
+        x402._guard_seller_url("http://metadata.internal/latest")
+
+    # classic RFC-1918 LAN: blocked unless explicitly allowed
+    _fake_dns(monkeypatch, "10.0.0.5")
+    with pytest.raises(x402.PaymentError, match="private/LAN address"):
+        x402._guard_seller_url("http://internal-seller/analysis")
+    monkeypatch.setattr(x402.settings, "x402_allow_private_sellers", True)
+    x402._guard_seller_url("http://internal-seller/analysis")  # now allowed
+
+
+def test_seller_url_guard_allows_vpn_sentinel_ranges(monkeypatch):
+    # VPN / WARP resolvers hand back 198.18.x / 100.64.x for public hosts — must NOT block
+    for ip in ("198.18.14.211", "100.64.0.7", "8.8.8.8"):
+        _fake_dns(monkeypatch, ip)
+        x402._guard_seller_url("https://alphabazaar-funding-scanner.onrender.com/analysis")
+
+
 def test_live_mode_signs_real_eip712_recoverable_to_payer(monkeypatch):
     eth_account = pytest.importorskip("eth_account")
     acct = eth_account.Account.create()
