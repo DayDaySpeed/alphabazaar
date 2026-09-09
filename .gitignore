@@ -13,3 +13,5 @@ reports/
 # internal planning docs — not part of the public submission
 PLAN.md
 RUNBOOK.md
+# runtime state (SQLite ledger, etc.)
+var/
