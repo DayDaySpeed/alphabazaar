@@ -28,7 +28,8 @@ ASSETS = ["BTC", "ETH", "BNB", "SOL"]
 class BinanceClient(Protocol):
     def get_portfolio(self) -> Portfolio: ...
     def get_market(self, assets: list[str]) -> list[MarketQuote]: ...
-    def execute_convert(self, action: RebalanceAction) -> dict: ...
+    def execute_convert(self, action: RebalanceAction, *, quote_id: str | None = None) -> dict: ...
+    def data_provenance(self) -> list[dict]: ...
 
 
 # --------------------------------------------------------------------------- mock
@@ -72,7 +73,7 @@ class MockBinanceClient:
             )
         return Portfolio(sub_account=self.SUB_ACCOUNT, holdings=holdings, cash_usdc=self._CASH)
 
-    def execute_convert(self, action: RebalanceAction) -> dict:
+    def execute_convert(self, action: RebalanceAction, *, quote_id: str | None = None) -> dict:
         return {
             "status": "FILLED",
             "sub_account": self.SUB_ACCOUNT,
@@ -82,6 +83,24 @@ class MockBinanceClient:
             "to_qty": action.est_to_qty,
             "note": "mock fill — no real order placed",
         }
+
+    def data_provenance(self) -> list[dict]:
+        """Where the portfolio/market numbers came from (delegates to marketdata)."""
+        prov = marketdata.data_provenance()
+        return [
+            {
+                "label": "portfolio", "source": "synthetic-mock",
+                "as_of": prov["as_of"], "captured_at": None,
+                "degraded": True, "stale": False,
+                "reason": "BINANCE_MODE=mock — synthetic lopsided book, not a real account",
+            },
+            {
+                "label": "market", "source": ",".join(prov["sources"]),
+                "as_of": prov["as_of"], "captured_at": None,
+                "degraded": prov["degraded"], "stale": False,
+                "reason": "" if not prov["degraded"] else "one or more market reads used a synthetic fallback",
+            },
+        ]
 
 
 # --------------------------------------------------------------------------- live

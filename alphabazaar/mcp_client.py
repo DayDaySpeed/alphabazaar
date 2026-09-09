@@ -36,6 +36,7 @@ import json
 import urllib.parse
 import webbrowser
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -55,11 +56,22 @@ REDIRECT_URI = f"http://127.0.0.1:{REDIRECT_PORT}/callback"
 ASSETS = ["BTC", "ETH", "BNB", "SOL"]
 
 # keyword sets used to locate the server's tools (all substrings must match, lower-cased)
+#
+# The Convert entries were verified against the binance-mcp-server tool schemas
+# (2026-09): Convert is a TWO-STEP flow —
+#   convert_sendQuoteRequest(fromAsset, toAsset, fromAmount:number, validTime)
+#     -> {quoteId, fromAmount, toAmount, ratio, validTimestamp}   (quoteId only if funded)
+#   convert_acceptQuote(quoteId) -> {orderId, orderStatus}
+#   convert_orderStatus(orderId|quoteId) -> {orderStatus, ...}
+# `mcp-probe` still prints the live surface in case a deployment differs.
 _TOOL = {
     "account": ("account",),
     "ticker": ("ticker",),
     "funding": ("funding",),
-    "convert": ("convert",),
+    "convert_quote": ("convert", "quote", "request"),   # convert_sendQuoteRequest (unique)
+    "convert_accept": ("convert", "accept"),             # convert_acceptQuote (unique)
+    "convert_status": ("convert", "order", "status"),    # convert_orderStatus (unique)
+    "convert_precision": ("convert", "precision"),       # convert_queryOrderQuantityPrecisionPerAsset
 }
 
 
@@ -252,17 +264,99 @@ class McpBinanceClient:
     def get_market(self, assets: list[str]) -> list[MarketQuote]:
         return self._snapshot()[1]
 
-    def execute_convert(self, action: RebalanceAction) -> dict:
-        def _do(session):
-            return _call(
-                session,
-                "convert",
-                fromAsset=action.from_asset,
-                toAsset=action.to_asset,
-                fromAmount=action.from_qty,
+    def quote_convert(self, action: RebalanceAction) -> dict:
+        """Step 1 of the Convert flow — request a quote (no order placed).
+
+        Args + response fields match the ``convert_sendQuoteRequest`` schema.
+        Not yet exercised end-to-end against a funded Agentic sub-account, so the
+        response-field reads stay defensive.
+        """
+        import time as _t
+
+        async def _do(session):
+            return await _call(
+                session, "convert_quote",
+                fromAsset=action.from_asset, toAsset=action.to_asset,
+                fromAmount=float(action.from_qty),  # schema: number, not string
+                validTime="30s",                    # 10s default is too tight for human approval
             )
 
-        return {"submitted": True, "response": _run(_do)}
+        q = _run(_do) or {}
+        to_qty = _num(q, "toAmount", "toQty", "estimatedAmount", default=float(action.est_to_qty))
+        # prefer the server's absolute expiry (validTimestamp, ms epoch)
+        valid_ts = _num(q, "validTimestamp", "expiredTimestamp", default=0)
+        ttl_s = max(1.0, valid_ts / 1000.0 - _t.time()) if valid_ts else 30.0
+        return {
+            "quote_id": q.get("quoteId") or q.get("quote_id") or "",
+            "to_qty": to_qty,
+            "from_qty": _num(q, "fromAmount", default=float(action.from_qty)),
+            "ratio": _num(q, "ratio", default=0.0),
+            "ttl_s": ttl_s,
+            "raw": q,
+        }
+
+    def execute_convert(self, action: RebalanceAction, *, quote_id: str | None = None) -> dict:
+        """Step 2 — accept a specific quote the human already approved.
+
+        ``quote_id`` MUST be the id returned by ``quote_convert`` and shown to the
+        human (``execution.execute`` passes ``Quote.quote_id``). We never fetch a
+        fresh quote here — that would execute terms the human never saw.
+
+        Args match the ``convert_acceptQuote`` schema (verified 2026-09).
+        ``orderStatus`` values: PROCESS | ACCEPT_SUCCESS | SUCCESS | FAIL.
+        NOT yet run against a funded Agentic sub-account.
+        """
+        if not quote_id:
+            raise RuntimeError(
+                "execute_convert needs the approved quote_id (from quote_convert); "
+                "refusing to fetch a new quote the human did not approve"
+            )
+
+        async def _do(session):
+            accepted = await _call(session, "convert_accept", quoteId=quote_id) or {}
+            order_id = accepted.get("orderId") or accepted.get("order_id")
+            st = str(accepted.get("orderStatus") or "").upper()
+            final = accepted
+            # acceptQuote returns PROCESS/ACCEPT_SUCCESS while settling — resolve
+            # the terminal state (SUCCESS/FAIL) with convert_orderStatus
+            if st in ("PROCESS", "ACCEPT_SUCCESS") and order_id:
+                try:
+                    final = await _call(session, "convert_status", orderId=str(order_id)) or accepted
+                except Exception:
+                    final = accepted
+            return {"accepted": accepted, "final": final, "order_id": order_id}
+
+        res = _run(_do) or {}
+        final = res.get("final") or {}
+        st = str(final.get("orderStatus") or final.get("status") or "").upper()
+        if st in ("SUCCESS", "FILLED"):
+            status = "SUCCESS"
+        elif st in ("FAIL", "FAILED", "REJECTED", "EXPIRED"):
+            status = "FAILED"
+        elif st in ("PROCESS", "ACCEPT_SUCCESS"):
+            status = "SUBMITTED"  # accepted but not yet confirmed terminal
+        else:
+            status = st or "UNKNOWN"
+        return {
+            "status": status,
+            "sub_account": "agentic",
+            "from": action.from_asset,
+            "to": action.to_asset,
+            "from_qty": action.from_qty,
+            "to_qty": _num(final, "toAmount", default=float(action.est_to_qty)),
+            "order_id": res.get("order_id") or "",
+            "raw": res,
+            "unverified": True,
+        }
+
+    def data_provenance(self) -> list[dict]:
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        return [
+            {"label": "portfolio", "source": "agent-os-mcp-live", "as_of": now,
+             "captured_at": now, "degraded": False, "stale": False, "reason": ""},
+            {"label": "market", "source": "agent-os-mcp-live", "as_of": now,
+             "captured_at": now, "degraded": False, "stale": False, "reason": ""},
+        ]
 
     def probe(self) -> dict:
         async def _do(session):
@@ -361,6 +455,7 @@ class SnapshotBinanceClient:
             )
         self._d = json.loads(p.read_text())
         self._sub = str(self._d.get("sub_account", "agentic"))
+        self._path = str(p)
 
     def get_portfolio(self) -> Portfolio:
         pf = self._d["portfolio"]
@@ -400,7 +495,7 @@ class SnapshotBinanceClient:
             )
         return out
 
-    def execute_convert(self, action: RebalanceAction) -> dict:
+    def execute_convert(self, action: RebalanceAction, *, quote_id: str | None = None) -> dict:
         return {
             "status": "RECORDED",
             "sub_account": self._sub,
@@ -409,10 +504,41 @@ class SnapshotBinanceClient:
             "from_qty": action.from_qty,
             "to_qty": action.est_to_qty,
             "note": (
-                "snapshot mode — run this Convert for real from the whitelisted "
-                "MCP client (convert_sendQuoteRequest + convert_acceptQuote)"
+                "snapshot mode — no real order placed. Run this Convert from the "
+                "whitelisted MCP client (convert_sendQuoteRequest + convert_acceptQuote)."
             ),
         }
+
+    def data_provenance(self) -> list[dict]:
+        """Original capture time vs now — reading an old snapshot doesn't refresh it."""
+        captured = self._d.get("captured_at")
+        now = datetime.now(timezone.utc)
+        age_h = None
+        stale = False
+        if captured:
+            try:
+                dt = datetime.fromisoformat(str(captured).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                age_h = round((now - dt).total_seconds() / 3600, 1)
+                stale = age_h > settings.data_max_age_hours
+            except ValueError:
+                stale = True  # unparseable timestamp -> treat conservatively
+        else:
+            stale = True  # no capture time -> conservative
+        reason = ""
+        if stale:
+            reason = (
+                f"snapshot captured {captured or 'unknown'} "
+                f"({'age unknown' if age_h is None else f'{age_h}h old'}); "
+                f"older than DATA_MAX_AGE_HOURS={settings.data_max_age_hours:g}"
+            )
+        entry = {
+            "label": "portfolio+market", "source": self._d.get("source", "agent-os-mcp-snapshot"),
+            "as_of": now.isoformat(timespec="seconds"),
+            "captured_at": captured, "degraded": False, "stale": stale, "reason": reason,
+        }
+        return [entry]
 
 
 def mcp_auth() -> None:
