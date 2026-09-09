@@ -98,8 +98,37 @@ python -m alphabazaar.capture < raw.json > alphabazaar/snapshot.json  # 输入�
 ./run_demo.sh          # 启动本地三个卖方 agent，跑分析师，然后收尾
 ```
 
-分析师读子账户 → 从注册表**发现**卖方 → 用 x402 付每个卖方 → 写 `reports/YYYY-MM-DD.html`
-→ 打印再平衡建议并请求批准（输 `y` 在**子账户内**执行一笔 Convert）。
+分析师读子账户 → 从注册表**发现**卖方 → 用 x402 付每个卖方 → 写
+`reports/runs/<日期>__<run_id>.html`（+ 同名 `.json`）并刷新 `reports/<日期>.html`
+指针 → 报价（quote）→ 展示报价与有效期 → 请求批准（输 `y`）→ 绑定该报价单次执行 →
+记录结果。
+
+**可靠性要点**：
+
+- x402 日预算由持久化 SQLite 账本按 `(付款身份, 网络, UTC 日期)` 记账，存于
+  `var/ledger.db`，**跨进程重启、跨 UTC 日**都生效；预算主体是链上付款钱包，
+  与 Binance 子账户交易余额是两回事。
+- 结算状态不明（付款已发出但响应丢失）的请求标为 `settlement_unknown`，**不会**被
+  当作未付款重新付；`python -m alphabazaar.cli run --resume-run <run_id>` 用原授权
+  补领分析结果，不重新签名。
+- 每份报告顶部显示模式、数据新鲜度、分析完整性（N/M 卖方交付）、失败原因；
+  使用模拟 / 过期 / 缺失关键数据时**阻止进入 live 交易执行**。
+- 所有再平衡建议先经独立确定性校验层（资产、正数、有限值、**free** 余额、名义额度），
+  LLM 不被信任自觉遵守规则。`mock` / `snapshot` 永不下真实订单。
+- **买方按预算和卖方历史决策**：`brain.plan` 接入当日剩余预算和卖方信誉分
+  （`ratings.py` 从账本聚合成交率/交付率/结算不明率/降级率 + 信号方向命中率）——
+  预算不够时按优先级取舍、跳过历史差的卖方，`plan_rationale` 里写清跳过了谁、为什么。
+- **信号可追溯 + 事后打分**：每条信号带 `seller_id`（用注册表 id，卖方不能自报）+
+  `request_id`（链回付款）+ `evidence`（指标快照）+ `horizon` / `valid_until`，并落库。
+  信号到期后 `python -m alphabazaar.cli score-signals` 用当前行情判定 hit / miss / neutral，
+  命中率按 85/15 混入卖方信誉分。
+- **工作台**：`python -m alphabazaar.cli board` 生成 `reports/board.html` —— 只读汇总所有
+  运行、支付账本（含待补领项）、卖方信誉（含信号命中率）；`--serve` 用标准库 http.server
+  起本地预览。`python -m alphabazaar.cli sellers` 打印卖方信誉表。
+- **SSRF 护栏**：卖方解析到云元数据 / link-local 地址永久拦截，解析到 RFC-1918 局域网段
+  需 `X402_ALLOW_PRIVATE_SELLERS=1`；loopback 及其余地址（含 VPN 解析器给公网域名返回的
+  `198.18/15` / `100.64/10` sentinel）放行。付款授权带 `validAfter/validBefore`，过期或未
+  生效的授权被拒。
 
 **对着已部署的公网卖方跑**（见《部署卖方》），不需要本地起服务：
 
@@ -160,11 +189,17 @@ alphabazaar/
   models.py         共享 pydantic 模型
   marketdata.py     公开 Binance REST + 离线合成回退
   binance_client.py Mock + MCP 子账户客户端
-  x402.py           x402 握手（客户端 + 服务端）+ 花费账本
-  brain.py          规划器 + 报告综合（确定性 / claude-opus-5）
+  x402.py           x402 握手（客户端 + 服务端）+ 带幂等补领的 paid_get
+  ledger.py         持久化 SQLite 账本：预算/支付（跨进程/跨 UTC 日）+ 执行 + 信号结果
+  validate.py       确定性交易前校验层
+  execution.py      报价 → 批准（绑定报价）→ 单次执行 → 记录
+  ratings.py        从账本聚合的卖方信誉（运营指标 + 信号命中率）
+  signal_scoring.py 信号方向判定 + 到期后 hit/miss/neutral 打分
+  brain.py          规划器（预算/信誉感知）+ 报告综合（确定性 / claude-opus-5）
   analyst.py        买方 agent 编排
-  report.py         Report -> HTML
-  cli.py            `python -m alphabazaar.cli run`
+  report.py         Report -> HTML + JSON sidecar（reports/runs/）
+  board.py          只读工作台（reports/board.html）
+  cli.py            run / board / sellers / score-signals / x402-selftest / mcp-*
   registry.py       seller discovery (reads sellers.registry.json)
 sellers/
   common.py         FastAPI 的 x402 paywall
@@ -320,8 +355,49 @@ allowlist opens:
 ```
 
 The analyst reads the sub-account → **discovers** sellers from the registry →
-pays each over x402 → writes `reports/YYYY-MM-DD.html` → prints any proposed
-rebalance and asks for approval (`y` executes a Convert **inside the sub-account**).
+pays each over x402 → writes `reports/runs/<date>__<run_id>.html` (+ a `.json`
+sidecar) and refreshes the `reports/<date>.html` pointer → quotes the rebalance →
+shows the quote + its expiry → asks for approval (`y`) → binds that approval to
+that exact quote and executes once → records the result.
+
+**Reliability:**
+
+- The x402 daily budget is a persistent SQLite ledger (`var/ledger.db`) keyed by
+  `(payer identity, network, UTC date)` — it survives process restarts and rolls
+  over at 00:00 UTC. The budget belongs to the on-chain payment wallet, which is
+  **separate** from the Binance sub-account's trading cash.
+- A payment whose response was lost is parked as `settlement_unknown` and is
+  **never** blindly re-paid. `python -m alphabazaar.cli run --resume-run <run_id>`
+  replays the original authorization to reclaim the analysis without re-signing.
+- Every report header shows mode, data freshness, analysis completeness
+  (N/M sellers delivered) and failure reasons. Synthetic / stale / missing data
+  **blocks live trade execution**.
+- Every proposed rebalance passes an independent deterministic validator
+  (asset held, positive & finite, within the **free** balance, notional bounds)
+  before it can be quoted, approved or executed. `mock` / `snapshot` never place
+  a real order.
+- **The buyer budgets and rates sellers.** `brain.plan` sees the day's remaining
+  budget and each seller's ledger-derived reputation (fill / delivery /
+  settlement-unknown / degraded-data rates + directional signal hit-rate, via
+  `ratings.py`) — it won't overspend and skips sellers with a poor track record,
+  spelling out what it dropped in `plan_rationale`.
+- **Signals are traceable and graded.** Each carries `seller_id` (the registry id
+  the buyer paid — a seller can't self-report it), `request_id` (links to the
+  payment), an `evidence` snapshot, a `horizon` and a `valid_until`, and is
+  logged. Once matured, `python -m alphabazaar.cli score-signals` marks each
+  hit / miss / neutral against the current price; the hit-rate is blended 85/15
+  into the seller score.
+- **Workbench.** `python -m alphabazaar.cli board` writes `reports/board.html` — a
+  read-only view over every run, the payment ledger (with reclaim commands for
+  unresolved payments) and seller reputation (incl. signal hit-rate). `--serve`
+  previews it over stdlib `http.server`. `python -m alphabazaar.cli sellers`
+  prints the reputation table.
+- **SSRF guard.** A seller that resolves to a cloud-metadata / link-local address
+  is always refused; a classic RFC-1918 LAN range needs
+  `X402_ALLOW_PRIVATE_SELLERS=1`. Loopback and everything else (including the
+  198.18/15 & 100.64/10 sentinels some VPN resolvers hand back for public hosts)
+  is allowed. Payment authorizations carry
+  `validAfter`/`validBefore` and an expired one is rejected.
 
 **Against the deployed public sellers** (see *Deploying the sellers*) — no local
 services needed:

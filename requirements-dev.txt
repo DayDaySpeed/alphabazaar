@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# Test + CI only. The suite is fully offline (see tests/conftest.py).
+pytest>=8.0
